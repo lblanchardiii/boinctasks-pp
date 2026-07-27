@@ -683,7 +683,11 @@ public:
     double start_time;
     double timeout;
     bool retry;
+#ifdef _WIN32
     sockaddr_in addr;
+#else
+    sockaddr_storage addr;
+#endif
 
     int send_request(const char*);
     int get_reply(char*&);
@@ -788,10 +792,10 @@ public:
 	int set_cc_config(CC_CONFIG& config, LOG_FLAGS& log_flags, int BoincVersion);
     int set_cc_config_raw(std::string *pData);
 
-	int RPC_CLIENT::get_app_config(const char* url, APP_CONFIGS& config);
-	int RPC_CLIENT::get_app_config_raw(const char* url, std::string&);
-	int RPC_CLIENT::set_app_config(const char* url, APP_CONFIGS& config);
-    int RPC_CLIENT::set_app_config_raw(const char* url, std::string *pData);
+	int get_app_config(const char* url, APP_CONFIGS& config);
+	int get_app_config_raw(const char* url, std::string&);
+	int set_app_config(const char* url, APP_CONFIGS& config);
+    int set_app_config_raw(const char* url, std::string *pData);
 	int get_daily_xfer_history(DAILY_XFER_HISTORY&);
     int set_debts(std::vector<PROJECT>);
 };
@@ -867,8 +871,8 @@ extern locale_t	uselocale(locale_t) __attribute__((weak_import));
 };
 
 #else
-#ifndef _WIN32
-#include <xlocale.h>
+#if !defined(_WIN32) && !defined(__GLIBC__)
+#include <xlocale.h>   // removed from glibc 2.26+; locale_t lives in <locale.h> there
 #endif
 
  struct SET_LOCALE {

@@ -2,6 +2,11 @@
 //
 
 #include "stdafx.h"
+#ifndef _WIN32
+#include "bt_port_shim.h"
+#include "RpcClient.h"
+#include <winsock2.h>   // compat shim -> BSD sockets
+#else
 #ifdef BoincTasks
 #include "BoincTasks.h"
 #include "DlgLogging.h"
@@ -14,6 +19,7 @@
 #include <ws2tcpip.h>   // for IPv6 support
 #include <wspiapi.h>    // for IPv6 support
 #include <Mswsock.h>
+#endif
 
 // CRpcClient
 
@@ -193,6 +199,70 @@ bool CRpcClient::SendReceive(char *pcSend)
 	return bReceived;
 }
 
+#ifndef _WIN32
+/*
+    Linux port: POSIX implementation of CreateClientSocket.
+    Same contract as the Windows version: resolve (cached in m_pRes), then
+    connect with a timeout; returns the connected socket or INVALID_SOCKET.
+*/
+SOCKET CRpcClient::CreateClientSocket(int iSetTimeout)
+{
+    struct addrinfo hints;
+    struct addrinfo *pAddr;
+    SOCKET clientSock = INVALID_SOCKET;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = m_clientContext.addressFamily;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if (m_pRes == NULL)
+    {
+        if (getaddrinfo(m_clientContext.m_sServer.c_str(), m_clientContext.szPort, &hints, &m_pRes) != 0)
+            return INVALID_SOCKET;
+    }
+    if (m_pRes == NULL)
+        return INVALID_SOCKET;
+
+    for (pAddr = m_pRes; pAddr != NULL; pAddr = pAddr->ai_next)
+    {
+        clientSock = socket(pAddr->ai_family, pAddr->ai_socktype, pAddr->ai_protocol);
+        if (clientSock == INVALID_SOCKET)
+            continue;
+        int flags = fcntl(clientSock, F_GETFL, 0);
+        fcntl(clientSock, F_SETFL, flags | O_NONBLOCK);
+        int rc = connect(clientSock, pAddr->ai_addr, pAddr->ai_addrlen);
+        if (rc != 0 && errno == EINPROGRESS)
+        {
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            FD_SET(clientSock, &wfds);
+            struct timeval tv;
+            tv.tv_sec  = iSetTimeout;
+            tv.tv_usec = 0;
+            rc = select(clientSock + 1, NULL, &wfds, NULL, &tv);
+            if (rc == 1)
+            {
+                int err = 0;
+                socklen_t elen = sizeof(err);
+                getsockopt(clientSock, SOL_SOCKET, SO_ERROR, &err, &elen);
+                rc = err ? -1 : 0;
+            }
+            else
+                rc = -1;
+        }
+        if (rc == 0)
+        {
+            fcntl(clientSock, F_SETFL, flags); // restore blocking mode
+            return clientSock;
+        }
+        close(clientSock);
+        clientSock = INVALID_SOCKET;
+    }
+    return clientSock;
+}
+
+#else // _WIN32
 /*
     This function create a socket for the client and connects it to the
     server.
@@ -416,6 +486,8 @@ SOCKET CRpcClient::CreateClientSocket(int iSetTimeout)
 /*
     Try sending data to server once. Return the error, if any.
 */
+#endif // _WIN32
+
 int CRpcClient::DoSendOnce()
 {
     int nBytesSent;    

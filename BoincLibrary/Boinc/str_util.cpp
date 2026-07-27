@@ -99,7 +99,7 @@ const char *strcasestr(const char *s1, const char *s2) {
     }
 #elif HAVE_STRDUP
     haystack=strdup(s1);
-    needle=strdup(s1)
+    needle=strdup(s2);
     need_free = true;
 #else
     haystack=(char *)malloc(strlen(s1)+1);
