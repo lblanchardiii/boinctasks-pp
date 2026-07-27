@@ -59,12 +59,38 @@ static int taskState(const RESULT& r)
 
 static wxString projectStatus(const PROJECT& p)
 {
+    // These are independent flags, not one state: a project can be suspended
+    // AND set to fetch no new work AND backing off from the scheduler all at
+    // once. Picking the first true one hides the rest, so list them all.
+    std::vector<wxString> parts;
+
+    if (p.suspended_via_gui)          parts.push_back("Suspended");
+    if (p.dont_request_more_work)     parts.push_back("No new tasks");
+    if (p.ended)                      parts.push_back("Project ended");
+    if (p.detach_when_done)           parts.push_back("Detach when done");
+    if (p.non_cpu_intensive)          parts.push_back("Non CPU intensive");
+    if (p.scheduler_rpc_in_progress)  parts.push_back("Scheduler request in progress");
+    else if (p.sched_rpc_pending)     parts.push_back("Scheduler request pending");
+    if (p.master_url_fetch_pending)   parts.push_back("Master file fetch pending");
+    if (p.trickle_up_pending)         parts.push_back("Trickle up pending");
+
+    // how long the client has decided to wait before talking to this project
+    double now = (double)wxDateTime::Now().GetTicks();
+    if (p.min_rpc_time > now) {
+        long secs = (long)(p.min_rpc_time - now);
+        parts.push_back(wxString::Format("Communication deferred %02ld:%02ld:%02ld",
+                                         secs / 3600, (secs % 3600) / 60, secs % 60));
+    }
+    if (p.download_backoff > 0)       parts.push_back("Download backoff");
+    if (p.upload_backoff > 0)         parts.push_back("Upload backoff");
+
+    if (parts.empty()) return "Active";
+
     wxString s;
-    if (p.suspended_via_gui)      s = "Suspended";
-    else if (p.dont_request_more_work) s = "No new tasks";
-    else                          s = "Active";
-    if (p.sched_rpc_pending)      s += ", sched. request pending";
-    if (p.download_backoff > 0 || p.upload_backoff > 0) s += ", backoff";
+    for (const auto& part : parts) {
+        if (!s.IsEmpty()) s += ", ";
+        s += part;
+    }
     return s;
 }
 
