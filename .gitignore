@@ -367,3 +367,18 @@ FodyWeavers.xsd
 /BoincTasks.sln
 /release/lang/BoincTasks_BGR.btlang
 private sign/
+# ---- Linux port -------------------------------------------------------------
+port/build/
+release-22.04/
+port/packaging/AppDir/
+port/packaging/debroot/
+
+# Release artefacts belong on a Releases page, not in the tree
+*.AppImage
+*.deb
+*.tar.gz
+
+# Local state
+*.db
+*.db-wal
+*.db-shm
