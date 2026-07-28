@@ -109,13 +109,18 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
                                       int hostFirst, int hostLast,
                                       long portFirst, long portLast,
                                       const wxString& password,
-                                      std::function<void(int, int)> onProgress)
+                                      std::function<bool(int, int)> onProgress)
 {
     std::vector<BtScanResult> results;
     if (hostFirst > hostLast) std::swap(hostFirst, hostLast);
     if (portFirst > portLast) std::swap(portFirst, portLast);
     const int total = hostLast - hostFirst + 1;
     if (total <= 0) return results;
+    // The bar covers both passes. Reporting the first pass as complete lets a
+    // dialog with AUTO_HIDE vanish while the retry is still working, leaving an
+    // app-modal parent disabled behind it - which looks exactly like a freeze.
+    const int reportTotal = total * 2;
+    std::atomic<bool> cancelled(false);
 
     std::mutex mutex;
     std::atomic<int> done(0);
@@ -139,6 +144,7 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
     std::atomic<int> nextHost(hostFirst);
 
     auto sweepHost = [&](bool patient) {
+        if (cancelled.load()) return;
         const int firstPortTimeout = patient ? gSettings.scanSlowTimeoutMs
                                              : gSettings.scanTimeoutMs;
         // In the patient pass the whole address is slow, not just its first
@@ -155,6 +161,8 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
                 n = nextHost.fetch_add(1);
                 if (n > hostLast) return;
             }
+
+            if (cancelled.load()) return;
 
             char addr[64];
             snprintf(addr, sizeof(addr), "%s.%d", base.c_str(), n);
@@ -219,7 +227,10 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
     int lastReported = -1;
     while (done.load() < total) {
         int d = done.load();
-        if (onProgress && d != lastReported) { onProgress(d, total); lastReported = d; }
+        if (onProgress && d != lastReported) {
+            if (!onProgress(d, reportTotal)) cancelled.store(true);
+            lastReported = d;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     for (auto& t : pool) t.join();
@@ -227,7 +238,8 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
     // pass two: patient, over only the addresses that never answered. Running
     // it threaded keeps the cost bounded - a quiet /24 is a few seconds even at
     // a multi-second timeout.
-    if (!slowCandidates.empty() && gSettings.scanSlowTimeoutMs > gSettings.scanTimeoutMs) {
+    if (!cancelled.load() && !slowCandidates.empty() &&
+        gSettings.scanSlowTimeoutMs > gSettings.scanTimeoutMs) {
         std::sort(slowCandidates.begin(), slowCandidates.end());
         done.store(0);
         const int slowTotal = (int)slowCandidates.size();
@@ -237,14 +249,16 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
         while (done.load() < slowTotal) {
             int d = done.load();
             if (onProgress && d != lastReported) {
-                onProgress(total, total);       // keep the bar full while retrying
+                // second half of the bar, so it keeps moving and never tops out
+                int shown = total + (slowTotal ? (d * total) / slowTotal : total);
+                if (!onProgress(shown, reportTotal)) cancelled.store(true);
                 lastReported = d;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         for (auto& t : slowPool) t.join();
     }
-    if (onProgress) onProgress(total, total);
+    if (onProgress) onProgress(reportTotal, reportTotal);
 
     std::sort(results.begin(), results.end(),
               [](const BtScanResult& a, const BtScanResult& b) {

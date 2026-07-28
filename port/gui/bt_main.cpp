@@ -2177,19 +2177,29 @@ private:
         if (pwDlg.ShowModal() != wxID_OK) return;
         wxString password = pwDlg.GetValue();
 
+        // The range covers both scan passes: the quick sweep and the patient
+        // retry over whatever stayed silent. Sizing it to the sweep alone let
+        // the bar top out early, and with AUTO_HIDE the dialog then vanished
+        // while the retry ran on - leaving the parent disabled behind it and
+        // the application looking frozen for minutes.
+        const int addressCount = (int)(last - first + 1);
         wxProgressDialog progress("Find computers",
             wxString::Format("Scanning %s.%ld-%ld ports %ld-%ld ...",
                              basePart, first, last, portFirst, portLast),
-            (int)(last - first + 1), this,
-            wxPD_APP_MODAL | wxPD_AUTO_HIDE | wxPD_ELAPSED_TIME);
+            addressCount * 2, this,
+            wxPD_APP_MODAL | wxPD_AUTO_HIDE | wxPD_ELAPSED_TIME | wxPD_CAN_ABORT);
 
         auto found = BtScanRange(basePart, (int)first, (int)last,
             portFirst, portLast, password,
             [&](int done, int total) {
-                progress.Update(done, wxString::Format("Scanned %d of %d", done, total));
+                wxString msg = done < addressCount
+                    ? wxString::Format("Scanned %d of %d addresses",
+                                       done, addressCount)
+                    : "Retrying addresses that did not answer...";
+                bool keepGoing = progress.Update(done, msg);
                 wxTheApp->Yield(true);
+                return keepGoing;      // false when Cancel is pressed
             });
-        progress.Update((int)(last - first + 1));
 
         if (found.empty()) {
             wxMessageBox("No BOINC clients answered on that range.",

@@ -44,4 +44,6 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
                                       int hostFirst, int hostLast,
                                       long portFirst, long portLast,
                                       const wxString& password,
-                                      std::function<void(int done, int total)> onProgress);
+                                      std::function<bool(int done, int total)> onProgress);
+// onProgress returns false to cancel the scan; the workers stop at their next
+// address and whatever was found so far is returned.
