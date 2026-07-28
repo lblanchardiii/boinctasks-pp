@@ -3,6 +3,11 @@
 A native Linux port of [BoincTasks](https://efmer.com/boinctasks/) by eFMer —
 manage BOINC across every computer you run, from one window.
 
+[**Download 0.9.0**](https://github.com/lblanchardiii/boinctasks-pp/releases/latest)
+ — [AppImage](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.0/BoincTasksPP-0.9.0-x86_64.AppImage)
+ · [.deb](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.0/boinctasks-pp_0.9.0_amd64.deb)
+ · [checksums](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.0/SHA256SUMS)
+
 ![The Tasks view](docs/tasks.jpg)
 
 ## What it is
@@ -30,9 +35,12 @@ are Windows-specific, and in testing. Developed against a farm of 41 clients.
 Ubuntu 22.04+, Debian 12+, Fedora 36+, RHEL/Rocky/Alma 9+, openSUSE Leap 15.4+ —
 anything with glibc 2.34 or newer and GTK 3. x86-64 only for now.
 
+Both are on the [releases page](https://github.com/lblanchardiii/boinctasks-pp/releases/latest).
+
 **AppImage** — no installation:
 
 ```sh
+wget https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.0/BoincTasksPP-0.9.0-x86_64.AppImage
 chmod +x BoincTasksPP-0.9.0-x86_64.AppImage
 ./BoincTasksPP-0.9.0-x86_64.AppImage
 ```
@@ -40,6 +48,7 @@ chmod +x BoincTasksPP-0.9.0-x86_64.AppImage
 **Debian / Ubuntu:**
 
 ```sh
+wget https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.0/boinctasks-pp_0.9.0_amd64.deb
 sudo apt install ./boinctasks-pp_0.9.0_amd64.deb
 ```
 
