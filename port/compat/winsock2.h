@@ -5,7 +5,13 @@
 // =============================================================================
 #pragma once
 
-#ifndef _WIN32
+#ifdef _WIN32
+// On Windows this file must not shadow the real header. It does sit earlier on
+// the include path than the system directories - a -I path always does - so
+// hand off to the next winsock2.h along the search order rather than replacing
+// it. Without this, Winsock 2 has no declarations at all and ws2tcpip.h fails.
+#include_next <winsock2.h>
+#else
 
 #include <sys/types.h>
 #include <sys/socket.h>

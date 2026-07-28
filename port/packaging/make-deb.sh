@@ -51,7 +51,7 @@ Categories=Network;Monitor;
 Terminal=false
 DESKTOP
 
-cp "$HERE/AppDir/boinctasks.png" \
+cp "$HERE/win/icon-256.png" \
    "$PKG/usr/share/icons/hicolor/256x256/apps/boinctasks-pp.png" 2>/dev/null || true
 cp "$ROOT/LICENSE.txt" "$PKG/usr/share/doc/boinctasks-pp/copyright" 2>/dev/null || true
 

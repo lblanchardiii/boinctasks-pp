@@ -1,0 +1,34 @@
+#include <windows.h>
+
+/* RT_MANIFEST: gives the process themed Common Controls v6 and per-monitor DPI.
+   Without it Windows renders the pre-XP grey widgets. */
+1 24 "boinctasks.manifest"
+
+/* wxWidgets loads the lowest-numbered icon as the application icon */
+aaaa ICON "boinctasks.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    0,9,0,0
+PRODUCTVERSION 0,9,0,0
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904E4"
+        BEGIN
+            VALUE "CompanyName",      "Skillz"
+            VALUE "FileDescription",  "BoincTasks++ - manage BOINC across many computers"
+            VALUE "FileVersion",      "0.9.0"
+            VALUE "InternalName",     "BoincTasksPP"
+            VALUE "LegalCopyright",   "GPLv3. Based on BoincTasks by eFMer (Fred)."
+            VALUE "OriginalFilename", "BoincTasksPP.exe"
+            VALUE "ProductName",      "BoincTasks++"
+            VALUE "ProductVersion",   "0.9.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END

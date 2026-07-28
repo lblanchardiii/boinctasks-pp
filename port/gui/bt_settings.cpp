@@ -137,6 +137,8 @@ void BtSettings::Load()
         warnSlots[i].gpuTasks = (int)cfg->ReadLong(k + "gpu", 0);
     }
     warnColour        = ReadColour(*cfg, "/Warnings/colour", wxColour(255, 80, 80));
+    scanTimeoutMs     = (int)cfg->ReadLong("/Scan/timeout_ms", 700);
+    scanSlowTimeoutMs = (int)cfg->ReadLong("/Scan/slow_timeout_ms", 4000);
     onlyActiveTasks = cfg->ReadBool("/Filter/only_active", false);
     showCpuTasks    = cfg->ReadBool("/Filter/cpu", true);
     showGpuTasks    = cfg->ReadBool("/Filter/gpu", true);
@@ -202,6 +204,8 @@ void BtSettings::Save() const
         cfg->Write(k + "gpu", (long)warnSlots[i].gpuTasks);
     }
     cfg->Write("/Warnings/colour",           warnColour.GetAsString(wxC2S_HTML_SYNTAX));
+    cfg->Write("/Scan/timeout_ms",           (long)scanTimeoutMs);
+    cfg->Write("/Scan/slow_timeout_ms",      (long)scanSlowTimeoutMs);
     cfg->Write("/Filter/only_active",        onlyActiveTasks);
     cfg->Write("/Filter/cpu",                showCpuTasks);
     cfg->Write("/Filter/gpu",                showGpuTasks);
@@ -337,6 +341,33 @@ BtSettingsDlg::BtSettingsDlg(wxWindow* parent, const BtSettings& cur,
         box->Add(m_hideAtStartup, 0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
         gtop->Add(box, 0, wxEXPAND | wxALL, 14);
     }
+    {   // Find computers
+        auto* box = new wxStaticBoxSizer(wxVERTICAL, general, "Find computers");
+        auto* grid = new wxFlexGridSizer(3, 6, 8);
+        m_scanTimeout = new wxSpinCtrl(box->GetStaticBox(), wxID_ANY, "",
+            wxDefaultPosition, wxSize(90, -1), wxSP_ARROW_KEYS, 100, 30000,
+            cur.scanTimeoutMs);
+        m_scanSlowTimeout = new wxSpinCtrl(box->GetStaticBox(), wxID_ANY, "",
+            wxDefaultPosition, wxSize(90, -1), wxSP_ARROW_KEYS, 0, 60000,
+            cur.scanSlowTimeoutMs);
+        grid->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY, "Wait up to"), 0,
+                  wxALIGN_CENTER_VERTICAL);
+        grid->Add(m_scanTimeout);
+        grid->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY,
+                  "ms for a reply"), 0, wxALIGN_CENTER_VERTICAL);
+        grid->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY, "Retry silent hosts at"),
+                  0, wxALIGN_CENTER_VERTICAL);
+        grid->Add(m_scanSlowTimeout);
+        grid->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY,
+                  "ms (0 = no retry)"), 0, wxALIGN_CENTER_VERTICAL);
+        box->Add(grid, 0, wxALL, 8);
+        box->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY,
+            "The scan sweeps quickly, then goes back over whatever stayed silent\n"
+            "with the longer timeout. Raise the retry if hosts on a slow or\n"
+            "wireless link are being missed."),
+            0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        gtop->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 14);
+    }
     general->SetSizer(gtop);
     book->InsertPage(0, general, "General", true);
 
@@ -365,6 +396,8 @@ BtSettings BtSettingsDlg::Result() const
     s.stopClientOnExit   = m_stopClient->GetValue();
     s.clientStartDelay   = m_clientDelay->GetValue();
     s.hideAtStartup      = m_hideAtStartup->GetValue();
+    s.scanTimeoutMs      = m_scanTimeout->GetValue();
+    s.scanSlowTimeoutMs  = m_scanSlowTimeout->GetValue();
     s.alternatingStripes = m_stripes->GetValue();
     s.gridLinesH         = m_gridH->GetValue();
     s.gridLinesV         = m_gridV->GetValue();

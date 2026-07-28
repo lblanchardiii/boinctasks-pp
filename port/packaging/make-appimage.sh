@@ -55,27 +55,7 @@ Terminal=false
 DESKTOP
 cp "$APPDIR/boinctasks.desktop" "$APPDIR/usr/share/applications/"
 
-# minimal icon so the AppImage tooling is satisfied
-python3 - "$APPDIR/boinctasks.png" <<'PY'
-import struct, zlib, sys
-w = h = 256
-rows = b''
-for y in range(h):
-    row = b'\x00'
-    for x in range(w):
-        band = y * 4 // h
-        rgb = [(31,119,180),(44,160,44),(255,150,60),(214,39,40)][min(band,3)]
-        row += bytes(rgb)
-    rows += row
-def chunk(t, d):
-    c = struct.pack('>I', len(d)) + t + d
-    return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
-png = b'\x89PNG\r\n\x1a\n'
-png += chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
-png += chunk(b'IDAT', zlib.compress(rows, 9))
-png += chunk(b'IEND', b'')
-open(sys.argv[1], 'wb').write(png)
-PY
+cp "$HERE/win/icon-256.png" "$APPDIR/boinctasks.png"
 cp "$APPDIR/boinctasks.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/"
 
 cat > "$APPDIR/AppRun" <<'APPRUN'

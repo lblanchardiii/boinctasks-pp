@@ -39,6 +39,9 @@
 #include <wx/fileconf.h>
 #include <wx/notifmsg.h>
 #include "gui_rpc_client.h"
+#ifdef _WIN32
+  #include "network.h"
+#endif
 
 // Version, and where a build checks for a newer one. eFMer hosts the Windows
 // application only - this port is not distributed from there - so until the
@@ -2311,7 +2314,12 @@ class BtApp : public wxApp
 public:
     bool OnInit() override
     {
-#ifndef _WIN32
+#ifdef _WIN32
+        // Nothing may touch a socket before this: without it every call fails
+        // with WSANOTINITIALISED. BOINC ships the wrapper but never calls it,
+        // because its own applications do this themselves.
+        WinsockInitialize();
+#else
         // A client dropping mid-RPC would otherwise kill the process. Windows
         // has no SIGPIPE; failed sends just return an error there.
         signal(SIGPIPE, SIG_IGN);

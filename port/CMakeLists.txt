@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 project(boinctasks-pp C CXX)
 
+# Without RC in the enabled languages CMake silently ignores .rc files, and the
+# manifest never reaches the binary - which costs you themed controls and DPI
+# awareness with no error to explain why.
+if(WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -16,6 +23,16 @@ add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/compat/msvc_crt_shim.h)
 # sources resolves to our shim. On Windows the real headers must win, so the
 # compat dir goes last - the shims disable themselves there anyway.
 if(WIN32)
+    # BOINC's socket code only compiles its Winsock paths - including the
+    # WSAStartup wrapper - when this is defined.
+    #
+    # WIN32_LEAN_AND_MEAN stops windows.h dragging in Winsock 1, which would
+    # then collide with the Winsock 2 headers the sockets actually use.
+    # boinc_win.h includes windows.h without it, so it has to be set globally.
+    #
+    # _WIN32_WINNT 0x0601 pins the API level at Windows 7: high enough for
+    # everything used here, low enough not to bar older systems.
+    add_compile_definitions(USE_WINSOCK WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
     include_directories(
         ${BT_ROOT}/BoincTasks
         ${BT_ROOT}/BoincLibrary
@@ -52,7 +69,6 @@ add_library(boinclib STATIC
     ${BT_ROOT}/BoincLibrary/Boinc/md5_file.cpp
     ${BT_ROOT}/BoincLibrary/Boinc/md5.c
     ${BT_ROOT}/BoincLibrary/Boinc/proxy_info.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/unix_util.cpp
     ${BT_ROOT}/BoincLibrary/Boinc/prefs.cpp
     ${BT_ROOT}/BoincLibrary/Boinc/notice.cpp
     ${BT_ROOT}/BoincLibrary/Boinc/hostinfo.cpp
@@ -61,6 +77,11 @@ add_library(boinclib STATIC
     ${BT_ROOT}/BoincLibrary/Boinc/filesys.cpp
     ${BT_ROOT}/BoincLibrary/Boinc/url.cpp
 )
+
+# daemonising, fork/setsid - Unix only, and not needed by a GUI client anyway
+if(NOT WIN32)
+    target_sources(boinclib PRIVATE ${BT_ROOT}/BoincLibrary/Boinc/unix_util.cpp)
+endif()
 target_include_directories(boinclib PUBLIC ${BT_ROOT}/BoincLibrary/Boinc)
 
 # ---- headless smoke test ----------------------------------------------------
@@ -88,6 +109,12 @@ add_executable(boinctasks
     gui/bt_taskinfo.cpp
 )
 if(WIN32)
+    # The resource script carries the manifest (themed controls + per-monitor
+    # DPI), the application icon and the version block Explorer shows.
+    target_sources(boinctasks PRIVATE packaging/win/boinctasks.rc)
+    set_source_files_properties(packaging/win/boinctasks.rc PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/win/boinctasks.manifest")
+
     # SQLite is cross-compiled from the amalgamation; there is no MinGW package
     target_include_directories(boinctasks PRIVATE ${BT_SQLITE_INCLUDE})
     target_link_libraries(boinctasks boinclib ${wxWidgets_LIBRARIES}

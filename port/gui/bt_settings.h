@@ -76,6 +76,12 @@ struct BtSettings
     };
     WarnSlot warnSlots[4];
 
+    // Find computers. The quick timeout is what a healthy LAN needs; the slow
+    // one is the retry for anything that didn't answer, which is how hosts
+    // behind a congested or wireless link get found instead of skipped.
+    int      scanTimeoutMs     = 700;
+    int      scanSlowTimeoutMs = 4000;
+
     // Extra menu task filters, matching the Windows app
     bool     onlyActiveTasks  = false;
     bool     showCpuTasks     = true;
@@ -143,6 +149,8 @@ private:
     class wxCheckBox* m_stopClient;
     class wxSpinCtrl* m_clientDelay;
     class wxCheckBox* m_hideAtStartup;
+    class wxSpinCtrl* m_scanTimeout;
+    class wxSpinCtrl* m_scanSlowTimeout;
     // View
     class wxCheckBox* m_stripes;
     class wxCheckBox* m_gridH;

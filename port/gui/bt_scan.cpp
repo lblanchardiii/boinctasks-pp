@@ -1,4 +1,5 @@
 #include "bt_scan.h"
+#include "bt_settings.h"
 #include <wx/checklst.h>
 #include <wx/sizer.h>
 #include <wx/button.h>
@@ -22,6 +23,12 @@
   #define BT_CLOSESOCKET closesocket
   using bt_socket_t = SOCKET;
   static const bt_socket_t BT_INVALID_SOCKET = INVALID_SOCKET;
+  // Winsock reports errors through WSAGetLastError, not errno, and uses its
+  // own constants. Reading errno here silently yields nothing, which makes
+  // every probe look like a timeout and the whole scan come back empty.
+  static inline int BtSockError()      { return WSAGetLastError(); }
+  static const int BT_EINPROGRESS      = WSAEWOULDBLOCK;
+  static const int BT_ECONNREFUSED     = WSAECONNREFUSED;
 #else
   #include <fcntl.h>
   #include <netinet/in.h>
@@ -31,6 +38,9 @@
   #define BT_CLOSESOCKET close
   using bt_socket_t = int;
   static const bt_socket_t BT_INVALID_SOCKET = -1;
+  static inline int BtSockError()      { return errno; }
+  static const int BT_EINPROGRESS      = EINPROGRESS;
+  static const int BT_ECONNREFUSED     = ECONNREFUSED;
 #endif
 
 namespace {
@@ -47,7 +57,6 @@ ProbeResult Probe(const char* addr, int port, int timeoutMs)
 {
     bt_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == BT_INVALID_SOCKET) return PROBE_TIMEOUT;
-    if (fd < 0) return PROBE_TIMEOUT;
 
     sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
@@ -69,21 +78,25 @@ ProbeResult Probe(const char* addr, int port, int timeoutMs)
     ProbeResult res = PROBE_TIMEOUT;
     if (connect(fd, (sockaddr*)&sa, sizeof(sa)) == 0) {
         res = PROBE_OPEN;
-    } else if (errno == EINPROGRESS) {
-        fd_set wf;
-        FD_ZERO(&wf);
-        FD_SET(fd, &wf);
+    } else if (BtSockError() == BT_EINPROGRESS) {
+        fd_set wf, ef;
+        FD_ZERO(&wf); FD_SET(fd, &wf);
+        // Winsock signals a failed connect through the exception set rather
+        // than the write set. Watching only writes would leave every refused
+        // port waiting out the full timeout, which is what makes sweeping a
+        // large port range affordable in the first place.
+        FD_ZERO(&ef); FD_SET(fd, &ef);
         timeval tv;
         tv.tv_sec  = timeoutMs / 1000;
         tv.tv_usec = (timeoutMs % 1000) * 1000;
-        if (select(fd + 1, nullptr, &wf, nullptr, &tv) == 1) {
+        if (select((int)fd + 1, nullptr, &wf, &ef, &tv) > 0) {
             int err = 0;
             socklen_t len = sizeof(err);
             getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
             res = (err == 0) ? PROBE_OPEN
-                : (err == ECONNREFUSED) ? PROBE_REFUSED : PROBE_TIMEOUT;
+                : (err == BT_ECONNREFUSED) ? PROBE_REFUSED : PROBE_TIMEOUT;
         }
-    } else if (errno == ECONNREFUSED) {
+    } else if (BtSockError() == BT_ECONNREFUSED) {
         res = PROBE_REFUSED;
     }
     BT_CLOSESOCKET(fd);
@@ -105,18 +118,43 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
     if (total <= 0) return results;
 
     std::mutex mutex;
-    std::atomic<int> next(hostFirst);
     std::atomic<int> done(0);
 
     std::string pw(password.mb_str());
     std::string base(baseAddr.mb_str());
 
     const unsigned workers = 48;
+    // The retry deliberately runs far fewer threads. 48 simultaneous probes
+    // saturate a weak link - a wireless bridge, say - and the retry then times
+    // out for the same reason the first pass did. Fewer, slower probes are
+    // what actually reach a congested host.
+    const unsigned slowWorkers = 6;
 
-    auto sweepHost = [&]() {
+    // Addresses whose first port timed out in the fast pass. A host behind a
+    // slow or flaky link - a wireless bridge, say - can easily take longer to
+    // answer than a quick probe allows, and abandoning the address on the
+    // first timeout loses every port on it. They get a second, patient pass.
+    std::vector<int> slowCandidates;
+    std::atomic<size_t> slowNext(0);
+    std::atomic<int> nextHost(hostFirst);
+
+    auto sweepHost = [&](bool patient) {
+        const int firstPortTimeout = patient ? gSettings.scanSlowTimeoutMs
+                                             : gSettings.scanTimeoutMs;
+        // In the patient pass the whole address is slow, not just its first
+        // port: giving the rest a short timeout finds two ports out of twelve
+        // and silently drops the others.
+        const int otherPortTimeout = patient ? gSettings.scanSlowTimeoutMs : 250;
         for (;;) {
-            int n = next.fetch_add(1);
-            if (n > hostLast) return;
+            int n;
+            if (patient) {
+                size_t i = slowNext.fetch_add(1);
+                if (i >= slowCandidates.size()) return;
+                n = slowCandidates[i];
+            } else {
+                n = nextHost.fetch_add(1);
+                if (n > hostLast) return;
+            }
 
             char addr[64];
             snprintf(addr, sizeof(addr), "%s.%d", base.c_str(), n);
@@ -126,11 +164,18 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
                 // Give the first port of an address a real timeout; once we
                 // know the host is up, closed ports answer instantly, so the
                 // remaining hundreds cost almost nothing.
-                int timeoutMs = hostAlive ? 250 : 700;
+                int timeoutMs = hostAlive ? otherPortTimeout : firstPortTimeout;
                 ProbeResult pr = Probe(addr, (int)port, timeoutMs);
 
                 if (pr == PROBE_TIMEOUT) {
-                    if (!hostAlive) break;      // nothing at this address at all
+                    if (!hostAlive) {
+                        // nothing answered here yet; worth one patient retry
+                        if (!patient) {
+                            std::lock_guard<std::mutex> lock(mutex);
+                            slowCandidates.push_back(n);
+                        }
+                        break;
+                    }
                     continue;                   // filtered port on a live host
                 }
                 hostAlive = true;
@@ -167,8 +212,9 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
         }
     };
 
+    // pass one: quick, over every address
     std::vector<std::thread> pool;
-    for (unsigned i = 0; i < workers; i++) pool.emplace_back(sweepHost);
+    for (unsigned i = 0; i < workers; i++) pool.emplace_back(sweepHost, false);
 
     int lastReported = -1;
     while (done.load() < total) {
@@ -177,6 +223,27 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     for (auto& t : pool) t.join();
+
+    // pass two: patient, over only the addresses that never answered. Running
+    // it threaded keeps the cost bounded - a quiet /24 is a few seconds even at
+    // a multi-second timeout.
+    if (!slowCandidates.empty() && gSettings.scanSlowTimeoutMs > gSettings.scanTimeoutMs) {
+        std::sort(slowCandidates.begin(), slowCandidates.end());
+        done.store(0);
+        const int slowTotal = (int)slowCandidates.size();
+        std::vector<std::thread> slowPool;
+        for (unsigned i = 0; i < slowWorkers; i++) slowPool.emplace_back(sweepHost, true);
+        lastReported = -1;
+        while (done.load() < slowTotal) {
+            int d = done.load();
+            if (onProgress && d != lastReported) {
+                onProgress(total, total);       // keep the bar full while retrying
+                lastReported = d;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        for (auto& t : slowPool) t.join();
+    }
     if (onProgress) onProgress(total, total);
 
     std::sort(results.begin(), results.end(),
