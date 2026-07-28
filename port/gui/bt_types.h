@@ -50,6 +50,7 @@ struct BtTaskRow
     bool     error    = false;
     bool     isGpu    = false;      // app version uses a GPU
     bool     nonCpuIntensive = false;   // project runs non-CPU-intensive work
+    bool     warning  = false;      // a Warnings rule matched; highlight the row
     // Windows shows these too; all come straight off the client's RESULT
     double   checkpoint = 0;    // checkpoint_cpu_time
     double   received   = 0;    // received_time, unix
@@ -68,6 +69,9 @@ struct BtProjectRow
     double   hostCredit = 0, hostAvgCredit = 0;   // this computer's contribution
     wxString venue;
     int      taskCount = 0;     // tasks currently held for this project
+    int      cpuTasks  = 0;     // split, for the run-dry warning
+    int      gpuTasks  = 0;
+    bool     warning   = false; // a Warnings slot matched: too few tasks left
     int      perDay    = 0;     // completions seen in the last day / week
     int      perWeek   = 0;
     double   timeLeft  = 0;     // their remaining time, summed

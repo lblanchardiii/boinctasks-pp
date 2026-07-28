@@ -1102,6 +1102,24 @@ private:
             }
         }
 
+        {   // Warnings: flag a project on a computer that has run low on work.
+            // Windows colours the task-count cell; wxListCtrl colours by row,
+            // so the whole row highlights instead.
+            auto contains = [](const wxString& hay, const wxString& needle) {
+                return needle.IsEmpty() || hay.Lower().Find(needle.Lower()) != wxNOT_FOUND;
+            };
+            for (auto& p : projects) {
+                p.warning = false;
+                for (const auto& slot : gSettings.warnSlots) {
+                    if (!slot.active()) continue;
+                    if (!contains(p.computer, slot.computer)) continue;
+                    if (!contains(p.project,  slot.project))  continue;
+                    if (slot.cpuTasks > 0 && p.cpuTasks < slot.cpuTasks) { p.warning = true; break; }
+                    if (slot.gpuTasks > 0 && p.gpuTasks < slot.gpuTasks) { p.warning = true; break; }
+                }
+            }
+        }
+
         {   // Projects > "Report all completed tasks N" - the count, and the
             // projects holding those tasks, both come from the current view
             m_reportTargets.clear();

@@ -24,6 +24,7 @@ public:
     wxString computer, project, application, status;
     bool     running = false, error = false;
     bool     isGpu = false;
+    bool     warning = false;     // any task in the group raised a warning
     int      state = 0;
     bool     expanded = false;
 

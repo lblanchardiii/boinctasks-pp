@@ -57,6 +57,25 @@ struct BtSettings
     bool     combineApplication = true;
     bool     combineStatus      = true;
 
+    // Warnings: highlight tasks that need attention and say why in the Status
+    // column, alongside whatever the task is already doing.
+    bool     warnDeadline      = false;
+    int      warnDeadlineDays  = 0;       // warn this long before the deadline
+    double   warnDeadlineHours = 12;
+    wxColour warnColour        = wxColour(255, 80, 80);
+
+    // "CPU less than / GPU less than": warn when a project on a computer drops
+    // below a floor of remaining tasks - the run-dry alarm. Four independent
+    // slots, computer and project matched as case-insensitive substrings so
+    // "epyc" covers every epyc host. Blank matches everything, 0 disables.
+    struct WarnSlot {
+        wxString computer, project;
+        int      cpuTasks = 0;
+        int      gpuTasks = 0;
+        bool active() const { return cpuTasks > 0 || gpuTasks > 0; }
+    };
+    WarnSlot warnSlots[4];
+
     // Extra menu task filters, matching the Windows app
     bool     onlyActiveTasks  = false;
     bool     showCpuTasks     = true;
@@ -113,6 +132,7 @@ private:
     wxWindow* BuildColumnPage(wxWindow* parent, size_t index,
                               wxWindow** extra = nullptr);
     wxWindow* BuildPlaceholder(wxWindow* parent, const wxString& what);
+    wxWindow* BuildWarningsPage(wxWindow* parent, const BtSettings& cur);
 
     class BtRulesPanel* m_rulesPanel;
     std::vector<BtColumnPage>            m_columns;
@@ -142,6 +162,14 @@ private:
     class wxCheckBox* m_historyLogging;
     class wxSpinCtrl* m_longTermAfter;
     class wxCheckBox* m_historyBackup;
+    class wxCheckBox*         m_warnDeadline;
+    class wxSpinCtrlDouble*   m_warnHours;
+    class wxColourPickerCtrl* m_warnColour;
+    class wxSpinCtrl*  m_warnDays;
+    class wxTextCtrl*  m_slotComputer[4];
+    class wxTextCtrl*  m_slotProject[4];
+    class wxSpinCtrl*  m_slotCpu[4];
+    class wxSpinCtrl*  m_slotGpu[4];
     class wxChoice*      m_interval;
     class wxSpinCtrl*    m_history;
     class wxSpinCtrl*    m_messages;

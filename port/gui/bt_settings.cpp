@@ -10,6 +10,7 @@
 #include <wx/clrpicker.h>
 #include <wx/tokenzr.h>
 #include <wx/listbox.h>
+#include <wx/textctrl.h>
 #include <wx/notebook.h>
 #include <wx/statbox.h>
 #include <wx/button.h>
@@ -125,6 +126,17 @@ void BtSettings::Load()
     combineProject     = cfg->ReadBool("/Combine/project", true);
     combineApplication = cfg->ReadBool("/Combine/application", true);
     combineStatus      = cfg->ReadBool("/Combine/status", true);
+    warnDeadline      = cfg->ReadBool("/Warnings/deadline", false);
+    warnDeadlineDays  = (int)cfg->ReadLong("/Warnings/deadline_days", 0);
+    warnDeadlineHours = cfg->ReadDouble("/Warnings/deadline_hours", 12);
+    for (int i = 0; i < 4; i++) {
+        wxString k = wxString::Format("/Warnings/slot%d/", i);
+        warnSlots[i].computer = cfg->Read(k + "computer", "");
+        warnSlots[i].project  = cfg->Read(k + "project", "");
+        warnSlots[i].cpuTasks = (int)cfg->ReadLong(k + "cpu", 0);
+        warnSlots[i].gpuTasks = (int)cfg->ReadLong(k + "gpu", 0);
+    }
+    warnColour        = ReadColour(*cfg, "/Warnings/colour", wxColour(255, 80, 80));
     onlyActiveTasks = cfg->ReadBool("/Filter/only_active", false);
     showCpuTasks    = cfg->ReadBool("/Filter/cpu", true);
     showGpuTasks    = cfg->ReadBool("/Filter/gpu", true);
@@ -179,6 +191,17 @@ void BtSettings::Save() const
     cfg->Write("/Combine/project",           combineProject);
     cfg->Write("/Combine/application",       combineApplication);
     cfg->Write("/Combine/status",            combineStatus);
+    cfg->Write("/Warnings/deadline",         warnDeadline);
+    cfg->Write("/Warnings/deadline_days",    (long)warnDeadlineDays);
+    cfg->Write("/Warnings/deadline_hours",   warnDeadlineHours);
+    for (int i = 0; i < 4; i++) {
+        wxString k = wxString::Format("/Warnings/slot%d/", i);
+        cfg->Write(k + "computer", warnSlots[i].computer);
+        cfg->Write(k + "project",  warnSlots[i].project);
+        cfg->Write(k + "cpu", (long)warnSlots[i].cpuTasks);
+        cfg->Write(k + "gpu", (long)warnSlots[i].gpuTasks);
+    }
+    cfg->Write("/Warnings/colour",           warnColour.GetAsString(wxC2S_HTML_SYNTAX));
     cfg->Write("/Filter/only_active",        onlyActiveTasks);
     cfg->Write("/Filter/cpu",                showCpuTasks);
     cfg->Write("/Filter/gpu",                showGpuTasks);
@@ -210,7 +233,8 @@ BtSettingsDlg::BtSettingsDlg(wxWindow* parent, const BtSettings& cur,
     , m_friendlyName(nullptr), m_cpuDigits(nullptr), m_progressDigits(nullptr)
     , m_deadlineRemaining(nullptr), m_historyLogging(nullptr), m_longTermAfter(nullptr)
     , m_condenseUse(nullptr), m_cpuLongAvg(nullptr), m_historyBackup(nullptr)
-    , m_statusOrder(nullptr)
+    , m_statusOrder(nullptr), m_warnDeadline(nullptr), m_warnHours(nullptr)
+    , m_warnColour(nullptr)
 {
     // Same thirteen tabs, in the same order, as the Windows dialog. The four
     // that cover Windows-only integrations are present but empty, so the layout
@@ -222,7 +246,7 @@ BtSettingsDlg::BtSettingsDlg(wxWindow* parent, const BtSettings& cur,
     for (size_t i = 0; i < m_columns.size(); i++)
         book->AddPage(BuildColumnPage(book, i), m_columns[i].title);
 
-    book->AddPage(BuildPlaceholder(book, "Warnings"), "Warnings");
+    book->AddPage(BuildWarningsPage(book, cur), "Warnings");
     book->AddPage(BuildPlaceholder(book, "the desktop gadget"), "Gadget");
     m_rulesPanel = new BtRulesPanel(book, std::move(rules));
     book->AddPage(m_rulesPanel, "Rules");
@@ -355,6 +379,18 @@ BtSettings BtSettingsDlg::Result() const
         s.statusOrder.clear();
         for (unsigned i = 0; i < m_statusOrder->GetCount(); i++)
             s.statusOrder.push_back(m_statusOrder->GetString(i));
+    }
+    if (m_warnDeadline) {
+        s.warnDeadline      = m_warnDeadline->GetValue();
+        s.warnDeadlineDays  = m_warnDays->GetValue();
+        s.warnDeadlineHours = m_warnHours->GetValue();
+        s.warnColour        = m_warnColour->GetColour();
+        for (int i = 0; i < 4; i++) {
+            s.warnSlots[i].computer = m_slotComputer[i]->GetValue();
+            s.warnSlots[i].project  = m_slotProject[i]->GetValue();
+            s.warnSlots[i].cpuTasks = m_slotCpu[i]->GetValue();
+            s.warnSlots[i].gpuTasks = m_slotGpu[i]->GetValue();
+        }
     }
     if (m_condenseUse)       s.condenseUse       = m_condenseUse->GetValue();
     if (m_cpuLongAvg)        s.cpuLongAverage    = m_cpuLongAvg->GetValue();
@@ -535,6 +571,94 @@ wxWindow* BtSettingsDlg::BuildColumnPage(wxWindow* parent, size_t index, wxWindo
             0, wxLEFT | wxRIGHT | wxBOTTOM, 6);
         top->Add(extra, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
     }
+
+    page->SetSizer(top);
+    return page;
+}
+
+wxWindow* BtSettingsDlg::BuildWarningsPage(wxWindow* parent, const BtSettings& cur)
+{
+    auto* page = new wxPanel(parent);
+    auto* top  = new wxBoxSizer(wxVERTICAL);
+
+    top->Add(new wxStaticText(page, wxID_ANY,
+        "A warning highlights a task that wants attention and says why in the\n"
+        "Status column, alongside whatever the task is already doing - so a row\n"
+        "reads \"Ready to report, Deadline warning\"."),
+        0, wxALL, 12);
+
+    auto* box = new wxStaticBoxSizer(wxVERTICAL, page, "Deadline");
+    m_warnDeadline = new wxCheckBox(box->GetStaticBox(), wxID_ANY,
+                                    "Warn when a task is close to its deadline");
+    m_warnDeadline->SetValue(cur.warnDeadline);
+    box->Add(m_warnDeadline, 0, wxALL, 8);
+
+    auto* row = new wxBoxSizer(wxHORIZONTAL);
+    m_warnDays = new wxSpinCtrl(box->GetStaticBox(), wxID_ANY, "", wxDefaultPosition,
+                                wxSize(70, -1), wxSP_ARROW_KEYS, 0, 365,
+                                cur.warnDeadlineDays);
+    m_warnHours = new wxSpinCtrlDouble(box->GetStaticBox(), wxID_ANY, "",
+                                       wxDefaultPosition, wxSize(80, -1),
+                                       wxSP_ARROW_KEYS, 0, 23.5, cur.warnDeadlineHours, 0.5);
+    m_warnHours->SetDigits(1);
+    row->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY, "Warn"), 0,
+             wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    row->Add(m_warnDays, 0);
+    row->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY, " days and "), 0,
+             wxALIGN_CENTER_VERTICAL);
+    row->Add(m_warnHours, 0);
+    row->Add(new wxStaticText(box->GetStaticBox(), wxID_ANY,
+             " hours before the deadline"), 0, wxALIGN_CENTER_VERTICAL);
+    box->Add(row, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    top->Add(box, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
+    auto* cbox = new wxStaticBoxSizer(wxVERTICAL, page, "Highlight");
+    auto* crow = new wxBoxSizer(wxHORIZONTAL);
+    m_warnColour = new wxColourPickerCtrl(cbox->GetStaticBox(), wxID_ANY, cur.warnColour);
+    crow->Add(new wxStaticText(cbox->GetStaticBox(), wxID_ANY, "Warning colour"), 0,
+              wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    crow->Add(m_warnColour, 0);
+    cbox->Add(crow, 0, wxALL, 8);
+    cbox->Add(new wxStaticText(cbox->GetStaticBox(), wxID_ANY,
+        "The warning colour replaces the status colour on a warned row, and on a\n"
+        "collapsed group if any task inside it is warning."),
+        0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    top->Add(cbox, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
+
+    // ---- run-dry warnings ----
+    auto* dry = new wxStaticBoxSizer(wxVERTICAL, page, "Low on work");
+    dry->Add(new wxStaticText(dry->GetStaticBox(), wxID_ANY,
+        "Warn when a project on a computer drops below this many tasks left.\n"
+        "Computer and Project match on part of the name, so \"epyc\" covers every\n"
+        "epyc host; leave either blank to match everything, and 0 to disable."),
+        0, wxALL, 8);
+
+    auto* grid = new wxFlexGridSizer(4, 6, 6);
+    for (const char* head : { "Computer", "Project", "CPU less than", "GPU less than" })
+        grid->Add(new wxStaticText(dry->GetStaticBox(), wxID_ANY, head));
+    for (int i = 0; i < 4; i++) {
+        m_slotComputer[i] = new wxTextCtrl(dry->GetStaticBox(), wxID_ANY,
+                                           cur.warnSlots[i].computer,
+                                           wxDefaultPosition, wxSize(150, -1));
+        m_slotProject[i]  = new wxTextCtrl(dry->GetStaticBox(), wxID_ANY,
+                                           cur.warnSlots[i].project,
+                                           wxDefaultPosition, wxSize(170, -1));
+        m_slotCpu[i] = new wxSpinCtrl(dry->GetStaticBox(), wxID_ANY, "", wxDefaultPosition,
+                                      wxSize(90, -1), wxSP_ARROW_KEYS, 0, 100000,
+                                      cur.warnSlots[i].cpuTasks);
+        m_slotGpu[i] = new wxSpinCtrl(dry->GetStaticBox(), wxID_ANY, "", wxDefaultPosition,
+                                      wxSize(90, -1), wxSP_ARROW_KEYS, 0, 100000,
+                                      cur.warnSlots[i].gpuTasks);
+        grid->Add(m_slotComputer[i]);
+        grid->Add(m_slotProject[i]);
+        grid->Add(m_slotCpu[i]);
+        grid->Add(m_slotGpu[i]);
+    }
+    dry->Add(grid, 0, wxALL, 8);
+    dry->Add(new wxStaticText(dry->GetStaticBox(), wxID_ANY,
+        "Matching rows highlight on the Projects view."),
+        0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    top->Add(dry, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 12);
 
     page->SetSizer(top);
     return page;

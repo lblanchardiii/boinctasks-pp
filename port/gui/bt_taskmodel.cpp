@@ -108,6 +108,10 @@ void BtTaskModel::Update(std::vector<BtTaskRow>&& rows)
         g->error   = list[0]->error;
         g->isGpu   = list[0]->isGpu;
         g->state   = list[0]->state;
+        // one warned task is enough to flag the whole collapsed group,
+        // otherwise a warning hides inside a group nobody expands
+        g->warning = false;
+        for (const auto* t : list) if (t->warning) { g->warning = true; break; }
 
         // aggregates: averages over the group, earliest deadline
         double cpu = 0, el = 0, ct = 0, tl = 0, pr = 0, use = 0, dl = 0;
@@ -244,12 +248,21 @@ bool BtTaskModel::GetAttrByRow(unsigned row, unsigned,
     const FlatRow& fr = m_flat[row];
     if (!gSettings.colourRows) return false;
 
+    bool warned = fr.group->warning;
     int  state = fr.group->state;
     bool gpu   = fr.group->isGpu;
     if (fr.task >= 0) {
-        state = fr.group->tasks[fr.task].state;
-        gpu   = fr.group->tasks[fr.task].isGpu;
+        state  = fr.group->tasks[fr.task].state;
+        gpu    = fr.group->tasks[fr.task].isGpu;
+        warned = fr.group->tasks[fr.task].warning;
     }
+    // A warning outranks the status colour - the whole point is that it stands
+    // out against rows that are merely running or waiting.
+    if (warned && gSettings.warnColour.IsOk()) {
+        attr.SetBackgroundColour(gSettings.warnColour);
+        return true;
+    }
+
     if (state < 0 || state >= BTS_COUNT) return false;
 
     wxColour c = gpu ? gSettings.taskColourGpu[state] : gSettings.taskColour[state];

@@ -243,6 +243,18 @@ void BtPoller::Run()
                             pc.Contains("intel_gpu");
             }
             row.status   = taskStatus(*r);
+
+            // Warnings sit alongside the task's own status rather than
+            // replacing it, so a row reads "Ready to report, Deadline warning".
+            if (gSettings.warnDeadline && r->report_deadline > 0) {
+                double left = r->report_deadline - (double)wxDateTime::Now().GetTicks();
+                double window = gSettings.warnDeadlineDays * 86400.0
+                              + gSettings.warnDeadlineHours * 3600.0;
+                if (left < window) {
+                    row.status += left > 0 ? ", Deadline warning" : ", Deadline passed";
+                    row.warning = true;
+                }
+            }
             row.state    = taskState(*r);
             row.running  = r->active_task && r->active_task_state == PROCESS_EXECUTING
                            && !r->suspended_via_gui;
@@ -277,6 +289,7 @@ void BtPoller::Run()
                 for (const auto& t : snap->tasks) {
                     if (t.projectUrl != row.masterUrl) continue;
                     row.taskCount++;
+                    if (t.isGpu) row.gpuTasks++; else row.cpuTasks++;
                     row.timeLeft += t.timeLeft;
                 }
                 snap->projects.push_back(std::move(row));

@@ -295,8 +295,10 @@ void ProjectsView::SetRows(const std::vector<BtProjectRow>& rows)
                      wxString::Format("%d", r.perWeek),
                      r.venue,
                      r.status, r.computer});
-        // amber when a project won't fetch new work - the "ran dry" warning
+        // a run-dry warning outranks the other colours: it is the one that
+        // means "this needs attention now"
         c.push_back(!gSettings.colourRows ? wxColour()
+                  : r.warning   ? gSettings.warnColour
                   : r.suspended ? gSettings.errorColour()
                   : r.noNewWork ? gSettings.noNewWorkColour
                                 : wxColour());
