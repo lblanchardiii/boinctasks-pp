@@ -12,11 +12,26 @@
 #include <cstdio>
 #include <cstring>
 #include <errno.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <unistd.h>
+
+// The probe below is raw sockets, which is the one place the two platforms
+// genuinely differ: Winsock needs its own headers, an explicit startup call,
+// closesocket() rather than close(), and ioctlsocket() for non-blocking mode.
+#ifdef _WIN32
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #define BT_CLOSESOCKET closesocket
+  using bt_socket_t = SOCKET;
+  static const bt_socket_t BT_INVALID_SOCKET = INVALID_SOCKET;
+#else
+  #include <fcntl.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+  #include <sys/socket.h>
+  #include <unistd.h>
+  #define BT_CLOSESOCKET close
+  using bt_socket_t = int;
+  static const bt_socket_t BT_INVALID_SOCKET = -1;
+#endif
 
 namespace {
 
@@ -30,17 +45,26 @@ enum ProbeResult { PROBE_OPEN, PROBE_REFUSED, PROBE_TIMEOUT };
 // address costs one timeout, a live one answers every port immediately.
 ProbeResult Probe(const char* addr, int port, int timeoutMs)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    bt_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == BT_INVALID_SOCKET) return PROBE_TIMEOUT;
     if (fd < 0) return PROBE_TIMEOUT;
 
     sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port   = htons((uint16_t)port);
-    if (inet_pton(AF_INET, addr, &sa.sin_addr) != 1) { close(fd); return PROBE_TIMEOUT; }
+    if (inet_pton(AF_INET, addr, &sa.sin_addr) != 1) {
+        BT_CLOSESOCKET(fd);
+        return PROBE_TIMEOUT;
+    }
 
+#ifdef _WIN32
+    u_long nonblocking = 1;
+    ioctlsocket(fd, FIONBIO, &nonblocking);
+#else
     int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#endif
 
     ProbeResult res = PROBE_TIMEOUT;
     if (connect(fd, (sockaddr*)&sa, sizeof(sa)) == 0) {
@@ -55,14 +79,14 @@ ProbeResult Probe(const char* addr, int port, int timeoutMs)
         if (select(fd + 1, nullptr, &wf, nullptr, &tv) == 1) {
             int err = 0;
             socklen_t len = sizeof(err);
-            getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+            getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
             res = (err == 0) ? PROBE_OPEN
                 : (err == ECONNREFUSED) ? PROBE_REFUSED : PROBE_TIMEOUT;
         }
     } else if (errno == ECONNREFUSED) {
         res = PROBE_REFUSED;
     }
-    close(fd);
+    BT_CLOSESOCKET(fd);
     return res;
 }
 

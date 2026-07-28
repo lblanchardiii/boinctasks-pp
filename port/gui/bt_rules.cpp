@@ -207,7 +207,11 @@ int SecondsIntoWeek(double now)
 {
     time_t t = (time_t)now;
     struct tm lt;
+#ifdef _WIN32
+    localtime_s(&lt, &t);        // MSVC/MinGW argument order is reversed
+#else
     localtime_r(&t, &lt);
+#endif
     return lt.tm_wday * 86400 + lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec;
 }
 

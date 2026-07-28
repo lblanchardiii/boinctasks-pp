@@ -1,5 +1,6 @@
 #include "bt_poller.h"
 #include "bt_settings.h"
+#include "bt_config.h"
 #include "gui_rpc_client.h"
 #include "common_defs.h"
 #include <wx/datetime.h>
@@ -110,7 +111,8 @@ std::string BtPoller::Password() const
         return std::string(m_computer.password.mb_str());
     // localhost fallback: read the client's own auth file
     if (m_computer.host == "127.0.0.1" || m_computer.host.Lower().Contains("localhost")) {
-        std::ifstream f("/var/lib/boinc-client/gui_rpc_auth.cfg");
+        std::ifstream f((BtBoincDataDir() + wxFILE_SEP_PATH +
+                         "gui_rpc_auth.cfg").mb_str());
         std::string pw;
         std::getline(f, pw);
         while (!pw.empty() && (pw.back() == '\n' || pw.back() == '\r')) pw.pop_back();

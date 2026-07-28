@@ -15,8 +15,12 @@
 #define BTPP_NAME       "BoincTasks++"
 #define BTPP_SHORT      "boinctasks-pp"
 
-wxString BtConfigPath();     // ~/.config/boinctasks-pp.conf
-wxString BtHistoryPath();    // ~/.config/boinctasks-pp-history.db
+// Linux: ~/.config/boinctasks-pp.conf   Windows: %APPDATA%\\BoincTasks++\\...
+wxString BtConfigPath();
+wxString BtHistoryPath();
+
+// Where the local BOINC client keeps gui_rpc_auth.cfg and its job logs.
+wxString BtBoincDataDir();
 
 // Carry settings and history over from the boinctasks-linux naming, once.
 void BtMigrateLegacyConfig();

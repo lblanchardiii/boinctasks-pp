@@ -247,8 +247,12 @@ public:
             int delay = gSettings.clientStartDelay;
             std::thread([delay]() {
                 std::this_thread::sleep_for(std::chrono::seconds(delay));
+#ifdef _WIN32
+                (void)std::system("net start boinc");
+#else
                 if (std::system("systemctl start boinc-client") != 0)
                     (void)std::system("boinc --daemon >/dev/null 2>&1 &");
+#endif
             }).detach();
         }
         m_engine.SetRules(BtLoadRules());
@@ -595,7 +599,8 @@ private:
         MainFrame* self = this;
         std::thread([self]() {
             RPC_CLIENT rpc;
-            std::ifstream f("/var/lib/boinc-client/gui_rpc_auth.cfg");
+            std::ifstream f((BtBoincDataDir() + wxFILE_SEP_PATH +
+                             "gui_rpc_auth.cfg").mb_str());
             std::string pw;
             std::getline(f, pw);
             while (!pw.empty() && (pw.back() == '\n' || pw.back() == '\r')) pw.pop_back();
@@ -655,7 +660,7 @@ private:
             for (const auto& c : m_computers) {
                 if (c.host != "127.0.0.1" && !c.host.Lower().Contains("localhost"))
                     continue;
-                auto rows = BtReadJobLogs(c.name, "/var/lib/boinc-client");
+                auto rows = BtReadJobLogs(c.name, BtBoincDataDir());
                 if (!rows.empty()) m_history_db.Insert(rows);
             }
             // job_log files reach back months, so archive and prune what they
@@ -1467,12 +1472,22 @@ private:
     void OnClientPower(bool start)
     {
         if (start) {
+#ifdef _WIN32
+            wxString cmd = "net start boinc";        // the BOINC service
+#else
             wxString cmd = "systemctl start boinc-client";
+#endif
             if (wxExecute(cmd, wxEXEC_SYNC) != 0) {
                 wxMessageBox("Could not start the local client.\n\n"
                              "Tried: " + cmd + "\n"
+#ifdef _WIN32
+                             "This usually needs an elevated prompt, or BOINC may "
+                             "be installed to run as an application rather than a "
+                             "service.",
+#else
                              "This usually needs root, so run it yourself or give "
                              "your user permission for that unit.",
+#endif
                              "Start BOINC Client", wxOK | wxICON_WARNING, this);
                 return;
             }
@@ -2296,7 +2311,11 @@ class BtApp : public wxApp
 public:
     bool OnInit() override
     {
-        signal(SIGPIPE, SIG_IGN);    // Windows-parity socket error behavior
+#ifndef _WIN32
+        // A client dropping mid-RPC would otherwise kill the process. Windows
+        // has no SIGPIPE; failed sends just return an error there.
+        signal(SIGPIPE, SIG_IGN);
+#endif
         (new MainFrame())->Show(true);
         return true;
     }

@@ -10,20 +10,46 @@ static wxFileConfig* OpenConfig()
     return new wxFileConfig(BTPP_SHORT, "eFMer", BtConfigPath());
 }
 
+// Settings belong where each platform expects them: ~/.config on Linux,
+// %APPDATA% on Windows. wxStandardPaths knows both, and creates neither, so
+// the directory is made here on first use.
+static wxString ConfigDir()
+{
+#ifdef _WIN32
+    wxString dir = wxStandardPaths::Get().GetUserDataDir();   // %APPDATA%\BoincTasks++
+#else
+    wxString dir = wxGetHomeDir() + "/.config";
+#endif
+    if (!wxDirExists(dir)) wxMkdir(dir);
+    return dir;
+}
+
 wxString BtConfigPath()
 {
-    return wxGetHomeDir() + "/.config/" + BTPP_SHORT + ".conf";
+    return ConfigDir() + wxFILE_SEP_PATH + BTPP_SHORT + ".conf";
 }
 
 wxString BtHistoryPath()
 {
-    return wxGetHomeDir() + "/.config/" + BTPP_SHORT + "-history.db";
+    return ConfigDir() + wxFILE_SEP_PATH + BTPP_SHORT + "-history.db";
+}
+
+wxString BtBoincDataDir()
+{
+#ifdef _WIN32
+    // BOINC's installer puts the data directory here unless told otherwise
+    return "C:\\ProgramData\\BOINC";
+#else
+    return "/var/lib/boinc-client";
+#endif
 }
 
 void BtMigrateLegacyConfig()
 {
     // Earlier builds called themselves boinctasks-linux. Bring a user's
     // computers, rules and history across rather than starting them empty.
+    // Only Linux ever had the old names; there is nothing to migrate elsewhere.
+#ifndef _WIN32
     struct { wxString from, to; } moves[] = {
         { wxGetHomeDir() + "/.config/boinctasks-linux.conf", BtConfigPath() },
         { wxGetHomeDir() + "/.config/boinctasks-history.db", BtHistoryPath() },
@@ -32,6 +58,7 @@ void BtMigrateLegacyConfig()
         if (wxFileExists(m.to) || !wxFileExists(m.from)) continue;
         wxCopyFile(m.from, m.to, false);
     }
+#endif
 }
 
 std::vector<BtComputer> BtLoadComputers()

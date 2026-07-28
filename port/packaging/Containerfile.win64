@@ -1,0 +1,44 @@
+# Windows build environment: MinGW-w64 cross-compiler on Ubuntu.
+#
+# Produces a single static .exe with no runtime to install - no MSVC
+# redistributable, no wxWidgets DLLs, no MinGW DLLs. Targets Windows 10 and 11;
+# nothing here uses an API newer than Vista, so older versions are likely to
+# work but are not tested.
+#
+# SQLite is compiled from the amalgamation rather than packaged, because there
+# is no MinGW SQLite in the Ubuntu archive.
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake git wget unzip ca-certificates pkg-config file \
+        mingw-w64 g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 \
+    && rm -rf /var/lib/apt/lists/*
+
+# MinGW offers two exception/threading models; the POSIX one gives us
+# std::thread, which the pollers rely on.
+RUN update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
+ && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+ARG WX_VERSION=3.2.6
+RUN wget -q https://github.com/wxWidgets/wxWidgets/releases/download/v${WX_VERSION}/wxWidgets-${WX_VERSION}.tar.bz2 \
+    && tar xf wxWidgets-${WX_VERSION}.tar.bz2 \
+    && cd wxWidgets-${WX_VERSION} \
+    && ./configure --host=x86_64-w64-mingw32 --build=x86_64-linux-gnu \
+                   --prefix=/opt/wx32-win --disable-shared --enable-unicode \
+                   --disable-debug --without-opengl --enable-webview=no \
+                   --with-msw \
+    && make -j"$(nproc)" \
+    && make install \
+    && cd / && rm -rf wxWidgets-${WX_VERSION} wxWidgets-${WX_VERSION}.tar.bz2
+
+ARG SQLITE=sqlite-amalgamation-3460100
+RUN wget -q https://www.sqlite.org/2024/${SQLITE}.zip \
+    && unzip -q ${SQLITE}.zip \
+    && x86_64-w64-mingw32-gcc -O2 -c ${SQLITE}/sqlite3.c -o /opt/sqlite3.o \
+    && x86_64-w64-mingw32-ar rcs /opt/libsqlite3.a /opt/sqlite3.o \
+    && mkdir -p /opt/sqlite-include && cp ${SQLITE}/sqlite3.h /opt/sqlite-include/ \
+    && rm -rf ${SQLITE} ${SQLITE}.zip
+
+ENV PATH=/opt/wx32-win/bin:$PATH
+WORKDIR /src

@@ -1,0 +1,42 @@
+#!/bin/bash
+# Windows build, run inside the bt-win64 container:
+#
+#   podman run --rm -v /root/projects/boinctasks-pp:/src:z bt-win64 \
+#       bash /src/port/packaging/build-windows.sh
+#
+# Produces a single static BoincTasksPP.exe - no MSVC redistributable, no
+# wxWidgets or MinGW DLLs to ship alongside it.
+set -e
+
+SRC=/src
+OUT=$SRC/release-windows
+BUILD=/tmp/build-win
+
+echo "== configuring =="
+cmake -S "$SRC/port" -B "$BUILD" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_SYSTEM_NAME=Windows \
+      -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+      -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+      -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
+      -DCMAKE_FIND_ROOT_PATH="/opt/wx32-win;/usr/x86_64-w64-mingw32" \
+      -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+      -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+      -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+      -DwxWidgets_CONFIG_EXECUTABLE=/opt/wx32-win/bin/wx-config \
+      -DBT_SQLITE_LIB=/opt/libsqlite3.a \
+      -DBT_SQLITE_INCLUDE=/opt/sqlite-include
+
+echo "== building =="
+make -C "$BUILD" -j"$(nproc)" boinctasks
+
+mkdir -p "$OUT"
+cp "$BUILD/BoincTasksPP.exe" "$OUT/"
+x86_64-w64-mingw32-strip "$OUT/BoincTasksPP.exe"
+
+echo "== result =="
+file "$OUT/BoincTasksPP.exe"
+ls -lh "$OUT/BoincTasksPP.exe" | awk '{print "  size: " $5}'
+echo "  DLLs it still needs (system ones only is what we want):"
+x86_64-w64-mingw32-objdump -p "$OUT/BoincTasksPP.exe" \
+    | awk '/DLL Name:/{print "    " $3}' | sort -u

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(boinctasks-linux C CXX)
+project(boinctasks-pp C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,12 +12,22 @@ set(BT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # MSVC secure-CRT names appear in vendored headers; make the shims universal
 add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/compat/msvc_crt_shim.h)
 
-# compat dir first so #include <winsock2.h> resolves to our shim
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/compat
-    ${BT_ROOT}/BoincTasks
-    ${BT_ROOT}/BoincLibrary
-)
+# On Linux the compat dir goes first so #include <winsock2.h> in unmodified
+# sources resolves to our shim. On Windows the real headers must win, so the
+# compat dir goes last - the shims disable themselves there anyway.
+if(WIN32)
+    include_directories(
+        ${BT_ROOT}/BoincTasks
+        ${BT_ROOT}/BoincLibrary
+        ${CMAKE_CURRENT_SOURCE_DIR}/compat
+    )
+else()
+    include_directories(
+        ${CMAKE_CURRENT_SOURCE_DIR}/compat
+        ${BT_ROOT}/BoincTasks
+        ${BT_ROOT}/BoincLibrary
+    )
+endif()
 
 # ---- core (non-UI) library --------------------------------------------------
 add_library(btcore STATIC
@@ -77,4 +87,16 @@ add_executable(boinctasks
     gui/bt_addproject.cpp
     gui/bt_taskinfo.cpp
 )
-target_link_libraries(boinctasks boinclib ${wxWidgets_LIBRARIES} sqlite3)
+if(WIN32)
+    # SQLite is cross-compiled from the amalgamation; there is no MinGW package
+    target_include_directories(boinctasks PRIVATE ${BT_SQLITE_INCLUDE})
+    target_link_libraries(boinctasks boinclib ${wxWidgets_LIBRARIES}
+                          ${BT_SQLITE_LIB} ws2_32)
+    # GUI subsystem: no console window behind the application
+    set_target_properties(boinctasks PROPERTIES WIN32_EXECUTABLE TRUE
+                          OUTPUT_NAME "BoincTasksPP")
+    # carry the runtime in the binary so there is nothing to install alongside
+    target_link_options(boinctasks PRIVATE -static -static-libgcc -static-libstdc++)
+else()
+    target_link_libraries(boinctasks boinclib ${wxWidgets_LIBRARIES} sqlite3)
+endif()
