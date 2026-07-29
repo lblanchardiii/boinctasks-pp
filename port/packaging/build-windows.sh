@@ -34,6 +34,18 @@ mkdir -p "$OUT"
 cp "$BUILD/BoincTasksPP.exe" "$OUT/"
 x86_64-w64-mingw32-strip "$OUT/BoincTasksPP.exe"
 
+echo "== installer =="
+if command -v makensis >/dev/null 2>&1; then
+    cp "$SRC/LICENSE.txt" "$SRC/port/packaging/win/license.txt" 2>/dev/null || true
+    makensis -V2 -DVERSION="${VERSION:-0.9.0}" \
+             -DSRCEXE="$OUT/BoincTasksPP.exe" \
+             -DOUTFILE="$OUT/BoincTasksPP-${VERSION:-0.9.0}-setup.exe" \
+             "$SRC/port/packaging/win/installer.nsi"
+    ls -lh "$OUT"/*setup.exe | awk '{print "  " $5, $9}'
+else
+    echo "  makensis not present - skipping the installer"
+fi
+
 echo "== result =="
 file "$OUT/BoincTasksPP.exe"
 ls -lh "$OUT/BoincTasksPP.exe" | awk '{print "  size: " $5}'
