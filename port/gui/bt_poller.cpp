@@ -283,6 +283,8 @@ void BtPoller::Run()
                 row.hostCredit    = p->host_total_credit;
                 row.hostAvgCredit = p->host_expavg_credit;
                 row.venue         = wxString::FromUTF8(p->venue.c_str());
+                row.hostCpid  = wxString::FromUTF8(state.host_info.host_cpid);
+                row.hostId    = p->hostid;
                 row.status    = projectStatus(*p);
                 row.noNewWork = p->dont_request_more_work;
                 row.suspended = p->suspended_via_gui;

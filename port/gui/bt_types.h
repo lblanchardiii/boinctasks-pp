@@ -65,6 +65,11 @@ struct BtProjectRow
 {
     wxString computer, project, account, team, status;
     wxString masterUrl;       // needed for project_op
+    // Free-DC links. Both already arrive with the data we poll, so keeping them
+    // costs no extra RPC: host_cpid comes from CC_STATE::host_info, and hostid
+    // is this host's ID on that project.
+    wxString hostCpid;
+    int      hostId = 0;
     double   credit = 0, avgCredit = 0, share = 0;
     double   hostCredit = 0, hostAvgCredit = 0;   // this computer's contribution
     wxString venue;

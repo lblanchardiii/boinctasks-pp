@@ -11,6 +11,43 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# The one place the release version is written. It reaches the About box, the
+# update check and the Windows version block from here. It used to be spelled
+# out separately in bt_main.cpp, boinctasks.rc and installer.nsi, and had
+# already drifted between them.
+#
+# A test build appends a letter: 0.9.4b. Releases never carry one. The letter
+# keeps test builds from eating release numbers, and dpkg orders them correctly
+# (0.9.4 < 0.9.4b < 0.9.4c < 0.9.5).
+#
+# Only a single letter, a-z. "0.9.4aa" sorts *below* "0.9.4z" in dpkg's
+# comparison, so a double-letter suffix would silently break upgrade ordering;
+# past z, bump the number instead.
+#
+if(NOT DEFINED BT_VERSION)
+    set(BT_VERSION "0.9.4")
+endif()
+
+# Windows version resources and NSIS accept four integers and nothing else, so
+# the letter cannot appear there. It becomes the fourth field instead, which
+# was previously a wasted constant zero: 0.9.4b -> 0,9,4,2. A release keeps 0.
+if(NOT BT_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)([a-z]?)$")
+    message(FATAL_ERROR
+        "BT_VERSION must be 1.2.3 or 1.2.3x with a single lowercase letter; got '${BT_VERSION}'")
+endif()
+set(_bt_major "${CMAKE_MATCH_1}")
+set(_bt_minor "${CMAKE_MATCH_2}")
+set(_bt_patch "${CMAKE_MATCH_3}")
+set(_bt_letter "${CMAKE_MATCH_4}")
+set(_bt_build 0)
+if(_bt_letter)
+    string(FIND "abcdefghijklmnopqrstuvwxyz" "${_bt_letter}" _bt_idx)
+    math(EXPR _bt_build "${_bt_idx} + 1")
+endif()
+set(BT_VERSION_COMMA "${_bt_major},${_bt_minor},${_bt_patch},${_bt_build}")
+set(BT_VERSION_NUM   "${_bt_major}.${_bt_minor}.${_bt_patch}.${_bt_build}")
+message(STATUS "BoincTasks++ version ${BT_VERSION} (numeric ${BT_VERSION_NUM})")
+
 find_package(wxWidgets 3.2 REQUIRED COMPONENTS core base)
 include(${wxWidgets_USE_FILE})
 
@@ -106,14 +143,21 @@ add_executable(boinctasks
     gui/bt_graphs.cpp
     gui/bt_settings.cpp
     gui/bt_addproject.cpp
+    gui/bt_freedc.cpp
     gui/bt_taskinfo.cpp
 )
+target_compile_definitions(boinctasks PRIVATE BT_VERSION_STR="${BT_VERSION}")
+
 if(WIN32)
     # The resource script carries the manifest (themed controls + per-monitor
     # DPI), the application icon and the version block Explorer shows.
     target_sources(boinctasks PRIVATE packaging/win/boinctasks.rc)
+
+    # BT_VERSION_COMMA already carries all four fields, letter included as the
+    # build number. The .rc keeps matching defaults for a bare windres run.
     set_source_files_properties(packaging/win/boinctasks.rc PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/win/boinctasks.manifest")
+        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/win/boinctasks.manifest"
+        COMPILE_DEFINITIONS "BT_VERSION_STR=\\\"${BT_VERSION}\\\";BT_VERSION_COMMA=${BT_VERSION_COMMA}")
 
     # SQLite is cross-compiled from the amalgamation; there is no MinGW package
     target_include_directories(boinctasks PRIVATE ${BT_SQLITE_INCLUDE})

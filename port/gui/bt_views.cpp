@@ -7,9 +7,31 @@
 #include <algorithm>
 #include "bt_settings.h"
 #include "bt_taskinfo.h"
+#include "bt_freedc.h"
 
 #include <wx/fileconf.h>
 #include <wx/utils.h>
+#include <wx/clipbrd.h>
+#include <wx/dataobj.h>
+#include <wx/settings.h>
+
+bool BtOpenUrl(wxWindow* parent, const wxString& url)
+{
+    if (url.IsEmpty()) return false;
+    if (wxLaunchDefaultBrowser(url)) return true;
+
+    // Nothing opened. Put the address somewhere usable rather than leaving the
+    // click looking like it did nothing at all.
+    wxString extra;
+    if (wxTheClipboard && wxTheClipboard->Open()) {
+        wxTheClipboard->SetData(new wxTextDataObject(url));
+        wxTheClipboard->Close();
+        extra = "\n\nIt has been copied to the clipboard.";
+    }
+    wxMessageBox("No web browser could be opened.\n\n" + url + extra,
+                 "Open in browser", wxOK | wxICON_INFORMATION, parent);
+    return false;
+}
 
 // ---- column visibility (shared by every list view) -------------------------
 void BtListView::EnableColumnMenu(const wxString& viewKey)
@@ -198,10 +220,133 @@ ProjectsView::ProjectsView(wxWindow* parent) : BtListView(parent)
     AppendColumn("Venue",      wxLIST_FORMAT_LEFT, 90);
     AppendColumn("Status",     wxLIST_FORMAT_LEFT, 230);
     AppendColumn("Computer",   wxLIST_FORMAT_LEFT, 130);
-    SetNumericColumns({3, 4, 5, 6, 7, 8, 9, 10, 11});
+    AppendColumn("Free-DC Host ID", wxLIST_FORMAT_RIGHT, 110);
+    SetNumericColumns({3, 4, 5, 6, 7, 8, 9, 10, 11, COL_FREEDC});
     EnableSorting();
     EnableColumnMenu("projects");
     Bind(wxEVT_CONTEXT_MENU, &ProjectsView::OnContextMenu, this);
+    // The generic wxListCtrl used on GTK delivers mouse events to an internal
+    // child window, not to the control itself, so bind there as well - binding
+    // only to the control means the handler never runs and the cell looks like
+    // a link that does nothing.
+    Bind(wxEVT_LEFT_DOWN, &ProjectsView::OnLeftDown, this);
+    Bind(wxEVT_MOTION, &ProjectsView::OnMotion, this);
+    for (wxWindow* child : GetChildren()) {
+        child->Bind(wxEVT_LEFT_DOWN, &ProjectsView::OnLeftDown, this);
+        child->Bind(wxEVT_MOTION,    &ProjectsView::OnMotion,   this);
+    }
+
+    m_linkFont = GetFont();
+    m_linkFont.SetUnderlined(true);
+}
+
+// Only the Free-DC cell gets link styling, and only when there is somewhere to
+// go: a project Free-DC does not carry leaves the cell blank rather than
+// offering a link that would 404.
+wxListItemAttr* ProjectsView::OnGetItemColumnAttr(long item, long col) const
+{
+    // Every column gets an explicit answer, never a null one. Returning null
+    // for a sub-item leaves the previous sub-item's colour and font in place
+    // under MSW's custom draw, so the link styling bled into every column drawn
+    // after it. That was invisible while this was the last column and obvious
+    // the moment the column was dragged left.
+    long i = SrcIndex(item);
+
+    bool isLink = false;
+    if (col == COL_FREEDC && i >= 0 && i < (long)m_rowData.size()) {
+        const auto& r = m_rowData[i];
+        isLink = !BtFreeDcHostIdUrl(r.masterUrl, r.project, r.hostId).IsEmpty();
+    }
+
+    // Start from whatever the row itself asked for, so status colours and the
+    // alternating stripe survive.
+    m_cellAttr = wxListItemAttr();
+    if (wxListItemAttr* rowAttr = BtListView::OnGetItemAttr(item)) {
+        if (rowAttr->HasBackgroundColour())
+            m_cellAttr.SetBackgroundColour(rowAttr->GetBackgroundColour());
+        if (rowAttr->HasTextColour())
+            m_cellAttr.SetTextColour(rowAttr->GetTextColour());
+    }
+
+    if (isLink) {
+        m_cellAttr.SetTextColour(wxColour(0, 0, 208));
+        m_cellAttr.SetFont(m_linkFont);
+    } else {
+        // spell out the ordinary appearance rather than leaving it unset
+        if (!m_cellAttr.HasTextColour())
+            m_cellAttr.SetTextColour(
+                wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOWTEXT));
+        m_cellAttr.SetFont(GetFont());
+    }
+    return &m_cellAttr;
+}
+
+// Which row and column a mouse position refers to. Two coordinate spaces are
+// in play and they are not the same: on GTK the event arrives on the list's
+// internal child window, whose origin is below the header, while GetSubItemRect
+// reports rectangles relative to the control, header included. HitTest wants
+// the former, the rectangles are in the latter, so both are kept.
+//
+// Asking each column's rectangle whether it contains the point avoids doing any
+// scroll or column-order arithmetic by hand - both of which this got wrong
+// before, and neither of which is the same on the two backends.
+bool ProjectsView::CellAt(const wxMouseEvent& ev, long& row, int& col) const
+{
+    ProjectsView* self = const_cast<ProjectsView*>(this);
+    const wxPoint praw = ev.GetPosition();
+    wxPoint pctl = praw;
+    if (wxWindow* src = wxDynamicCast(ev.GetEventObject(), wxWindow))
+        if (src != this) pctl = self->ScreenToClient(src->ClientToScreen(praw));
+
+    int flags = 0;
+    row = self->HitTest(praw, flags);
+    if (row == wxNOT_FOUND) {
+        row = self->HitTest(pctl, flags);        // in case they coincide
+        if (row == wxNOT_FOUND) return false;
+    }
+
+    col = -1;
+    for (int c = 0; c < GetColumnCount(); c++) {
+        wxRect rc;
+        if (!self->GetSubItemRect(row, c, rc)) continue;
+        if (rc.width <= 0) continue;             // hidden column
+        if (rc.Contains(pctl) || rc.Contains(praw)) { col = c; break; }
+    }
+    return col >= 0;
+}
+
+wxString ProjectsView::LinkAt(long row) const
+{
+    long i = SrcIndex(row);
+    if (i < 0 || i >= (long)m_rowData.size()) return wxEmptyString;
+    const auto& r = m_rowData[i];
+    return BtFreeDcHostIdUrl(r.masterUrl, r.project, r.hostId);
+}
+
+void ProjectsView::OnLeftDown(wxMouseEvent& ev)
+{
+    ev.Skip();                       // selection still behaves normally
+    long row = -1; int col = -1;
+    if (!CellAt(ev, row, col)) return;
+    if (col != COL_FREEDC) return;
+    wxString url = LinkAt(row);
+    if (!url.IsEmpty()) BtOpenUrl(this, url);
+}
+
+// GTK's generic list control never calls OnGetItemColumnAttr, so the cell
+// cannot be drawn blue and underlined there the way it is on Windows. A hand
+// cursor over the cell is the affordance that does work on both.
+void ProjectsView::OnMotion(wxMouseEvent& ev)
+{
+    ev.Skip();
+    wxWindow* src = wxDynamicCast(ev.GetEventObject(), wxWindow);
+    if (!src) return;
+
+    long row = -1; int col = -1;
+    bool overLink = CellAt(ev, row, col) && col == COL_FREEDC && !LinkAt(row).IsEmpty();
+    if (overLink == m_overLink) return;          // only change it when it changes
+    m_overLink = overLink;
+    src->SetCursor(overLink ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
 }
 
 void ProjectsView::OnContextMenu(wxContextMenuEvent& ev)
@@ -214,7 +359,8 @@ void ProjectsView::OnContextMenu(wxContextMenuEvent& ev)
     if (sel.empty() || !m_onOp) { ev.Skip(); return; }
 
     enum { ID_UPDATE = wxID_HIGHEST + 300, ID_SUSPEND, ID_RESUME,
-           ID_NOMORE, ID_ALLOWMORE, ID_RESET, ID_DETACH };
+           ID_NOMORE, ID_ALLOWMORE, ID_RESET, ID_DETACH,
+           ID_FREEDC_CPID, ID_FREEDC_HOST };
     wxMenu menu;
     menu.Append(ID_UPDATE,    "&Update project");
     menu.AppendSeparator();
@@ -227,7 +373,39 @@ void ProjectsView::OnContextMenu(wxContextMenuEvent& ev)
     menu.Append(ID_RESET,     "Rese&t project");
     menu.Append(ID_DETACH,    "&Detach project");
 
-    menu.Bind(wxEVT_MENU, [this, sel](wxCommandEvent& e) {
+    // ---- Free-DC ---------------------------------------------------------
+    // The CPID page is per computer, so several rows of the same computer are
+    // still unambiguous. The host page is per computer *and* project, so it
+    // needs exactly one row, and Free-DC's short code for that project.
+    menu.AppendSeparator();
+
+    bool oneComputer = true;
+    for (const auto& r : sel)
+        if (r.hostCpid != sel[0].hostCpid) { oneComputer = false; break; }
+    const wxString cpidUrl =
+        oneComputer ? BtFreeDcHostCpidUrl(sel[0].hostCpid) : wxString();
+    menu.Append(ID_FREEDC_CPID, "Free-DC Host CPID");
+    menu.Enable(ID_FREEDC_CPID, !cpidUrl.IsEmpty());
+
+    const wxString hostUrl = (sel.size() == 1)
+        ? BtFreeDcHostIdUrl(sel[0].masterUrl, sel[0].project, sel[0].hostId)
+        : wxString();
+    wxString hostLabel = "Free-DC Host ID";
+    if (sel.size() == 1 && hostUrl.IsEmpty() &&
+        BtFreeDcShortCode(sel[0].masterUrl, sel[0].project).IsEmpty())
+        hostLabel += "  (project not mapped)";
+    menu.Append(ID_FREEDC_HOST, hostLabel);
+    menu.Enable(ID_FREEDC_HOST, !hostUrl.IsEmpty());
+
+    menu.Bind(wxEVT_MENU, [this, sel, cpidUrl, hostUrl](wxCommandEvent& e) {
+        if (e.GetId() == ID_FREEDC_CPID) {
+            if (!cpidUrl.IsEmpty()) BtOpenUrl(this, cpidUrl);
+            return;
+        }
+        if (e.GetId() == ID_FREEDC_HOST) {
+            if (!hostUrl.IsEmpty()) BtOpenUrl(this, hostUrl);
+            return;
+        }
         wxString op, warn;
         switch (e.GetId()) {
             case ID_UPDATE:    op = "update"; break;
@@ -294,7 +472,12 @@ void ProjectsView::SetRows(const std::vector<BtProjectRow>& rows)
                      wxString::Format("%d", r.perDay),
                      wxString::Format("%d", r.perWeek),
                      r.venue,
-                     r.status, r.computer});
+                     r.status, r.computer,
+                     // the host's ID on that project, blank when Free-DC has
+                     // no page for it
+                     BtFreeDcHostIdUrl(r.masterUrl, r.project, r.hostId).IsEmpty()
+                         ? wxString()
+                         : wxString::Format("%d", r.hostId)});
         // a run-dry warning outranks the other colours: it is the one that
         // means "this needs attention now"
         c.push_back(!gSettings.colourRows ? wxColour()

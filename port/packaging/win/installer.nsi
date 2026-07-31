@@ -34,7 +34,12 @@ InstallDirRegKey HKLM "Software\${APPNAME}" "InstallDir"
 RequestExecutionLevel admin      ; installing to Program Files needs elevation
 SetCompressor /SOLID lzma
 
-VIProductVersion "0.9.0.0"
+; Windows wants four integers here and VERSION may carry a test-build letter
+; (0.9.4b), so the numeric form is passed separately by build-windows.sh.
+!ifndef VERSION_NUM
+  !define VERSION_NUM "0.0.0.0"
+!endif
+VIProductVersion "${VERSION_NUM}"
 VIAddVersionKey "ProductName"     "${APPNAME}"
 VIAddVersionKey "FileDescription" "${APPNAME} installer"
 VIAddVersionKey "FileVersion"     "${VERSION}"

@@ -14,8 +14,12 @@ OUT=$SRC/release-22.04
 BUILD=/tmp/build22          # keep object files out of the mounted tree
 
 echo "== configuring =="
+# Pass the version through, or the binary reports whatever the CMakeLists
+# default happens to be while the package filename says something else. That
+# stayed hidden only because both were bumped by hand at the same time.
 cmake -S "$SRC/port" -B "$BUILD" \
       -DCMAKE_BUILD_TYPE=Release \
+      -DBT_VERSION="${VERSION:?VERSION must be set}" \
       -DwxWidgets_CONFIG_EXECUTABLE=/opt/wx32/bin/wx-config
 
 echo "== building =="

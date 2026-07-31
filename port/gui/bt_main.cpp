@@ -43,13 +43,21 @@
   #include "network.h"
 #endif
 
-// Version, and where a build checks for a newer one. eFMer hosts the Windows
-// application only - this port is not distributed from there - so until the
-// Linux download site exists (boinctasks.free-dc.org is the plan) there is
-// nothing to check against and Help > Update just says so. Point kUpdateUrl at
-// the site to turn it into a real link.
-static const char* kVersion   = "0.9.0";
-static const char* kUpdateUrl = nullptr;
+// Version, and where a build sends somebody looking for a newer one. eFMer
+// hosts the Windows application only - this port is not distributed from there
+// - so Help > Update opens the port's own download page. It deliberately does
+// not self-update: an AppImage, a .deb and an installer all want different
+// things done to them, and quietly replacing a running binary is not a service
+// anyone asked for. Setting kUpdateUrl back to nullptr restores the "no feed
+// yet" message.
+// BT_VERSION_STR comes from CMake (BT_VERSION). The fallback only applies to a
+// hand-rolled compile; it had drifted to 0.9.0 while the packages said 0.9.1,
+// which is exactly what putting it in one place prevents.
+#ifndef BT_VERSION_STR
+#define BT_VERSION_STR "0.9.4"
+#endif
+static const char* kVersion   = BT_VERSION_STR;
+static const char* kUpdateUrl = "https://boinctasks-pp.free-dc.org/download.html";
 
 // ---------------------------------------------------------------------------
 // tree item payload: which computer (empty = "All computers" / a group node)
@@ -565,14 +573,14 @@ private:
              ID_NET_MODE, ID_MODE_END);
 
         // Help
-        Bind(wxEVT_MENU, [](wxCommandEvent&) {
-            wxLaunchDefaultBrowser("https://efmer.com/boinctasks-manual/"); }, ID_HELP_MANUAL);
-        Bind(wxEVT_MENU, [](wxCommandEvent&) {
-            wxLaunchDefaultBrowser("https://efmer.com/forum/"); }, ID_HELP_FORUM);
-        Bind(wxEVT_MENU, [](wxCommandEvent&) {
-            wxLaunchDefaultBrowser("https://boinc.berkeley.edu/"); }, ID_HELP_BOINC);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-            if (kUpdateUrl) { wxLaunchDefaultBrowser(kUpdateUrl); return; }
+            BtOpenUrl(this, "https://efmer.com/boinctasks-manual/"); }, ID_HELP_MANUAL);
+        Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+            BtOpenUrl(this, "https://efmer.com/forum/"); }, ID_HELP_FORUM);
+        Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+            BtOpenUrl(this, "https://boinc.berkeley.edu/"); }, ID_HELP_BOINC);
+        Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+            if (kUpdateUrl) { BtOpenUrl(this, kUpdateUrl); return; }
             wxMessageBox(wxString::Format(
                 "%s %s\n\n"
                 "This is not distributed from efmer.com - that site carries "
@@ -600,23 +608,55 @@ private:
     void LoadKnownProjects()
     {
         MainFrame* self = this;
-        std::thread([self]() {
-            RPC_CLIENT rpc;
-            std::ifstream f((BtBoincDataDir() + wxFILE_SEP_PATH +
-                             "gui_rpc_auth.cfg").mb_str());
-            std::string pw;
-            std::getline(f, pw);
-            while (!pw.empty() && (pw.back() == '\n' || pw.back() == '\r')) pw.pop_back();
-            if (rpc.init("127.0.0.1") != 0 || rpc.authorize(pw.c_str()) != 0) return;
+        // Ask the local client first, then the configured computers. Any BOINC
+        // client can serve this list, and keying it to 127.0.0.1 was backwards
+        // for a tool that exists to manage remote ones: on a machine with no
+        // local client the picker just came up empty with nothing said.
+        std::vector<BtComputer> hosts = BtLoadComputers();
+
+        std::thread([self, hosts]() {
+            auto fetch = [](const char* host, int port, const char* pw,
+                            ALL_PROJECTS_LIST& out) -> bool {
+                RPC_CLIENT rpc;
+                if (rpc.init(host, port) != 0) return false;
+                if (pw && *pw && rpc.authorize(pw) != 0) return false;
+                return rpc.get_all_projects_list(out) == 0 && !out.projects.empty();
+            };
 
             ALL_PROJECTS_LIST list;
-            if (rpc.get_all_projects_list(list) != 0) return;
+            bool got = false;
+
+            {   // local client, password from its own gui_rpc_auth.cfg
+                std::ifstream f((BtBoincDataDir() + wxFILE_SEP_PATH +
+                                 "gui_rpc_auth.cfg").mb_str());
+                std::string pw;
+                std::getline(f, pw);
+                while (!pw.empty() && (pw.back() == '\n' || pw.back() == '\r'))
+                    pw.pop_back();
+                got = fetch("127.0.0.1", 31416, pw.c_str(), list);
+            }
+
+            for (const auto& c : hosts) {
+                if (got) break;
+                if (!c.enabled || c.host.IsEmpty()) continue;
+                list.clear();
+                got = fetch(c.host.mb_str(), (int)c.port, c.password.mb_str(), list);
+            }
+            if (!got) return;      // nothing reachable had a list to give
 
             std::vector<BtProjectChoice> choices;
             for (auto* p : list.projects) {
                 BtProjectChoice c;
-                c.name = wxString::FromUTF8(p->name.c_str());
-                c.url  = wxString::FromUTF8(p->url.c_str());
+                c.name         = wxString::FromUTF8(p->name.c_str());
+                c.url          = wxString::FromUTF8(p->url.c_str());
+                c.area         = wxString::FromUTF8(p->general_area.c_str());
+                c.specificArea = wxString::FromUTF8(p->specific_area.c_str());
+                c.description  = wxString::FromUTF8(p->description.c_str());
+                c.home         = wxString::FromUTF8(p->home.c_str());
+                for (const auto& pl : p->platforms) {
+                    if (!c.platforms.IsEmpty()) c.platforms += ", ";
+                    c.platforms += wxString::FromUTF8(pl.c_str());
+                }
                 if (!c.name.IsEmpty() && !c.url.IsEmpty()) choices.push_back(std::move(c));
             }
             std::sort(choices.begin(), choices.end(),

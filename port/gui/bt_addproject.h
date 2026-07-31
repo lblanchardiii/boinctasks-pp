@@ -11,10 +11,18 @@
 #include <functional>
 #include <vector>
 
+// One entry of BOINC's master project list (all_projects_list.xml, which the
+// client refreshes from boinc.berkeley.edu). Everything past name/url is what
+// makes the picker readable: Classic groups by area and shows the blurb.
 struct BtProjectChoice
 {
     wxString name;
     wxString url;
+    wxString area;          // general_area, e.g. "Biology and Medicine"
+    wxString specificArea;  // specific_area, e.g. "Molecular biology"
+    wxString description;
+    wxString home;          // sponsoring organisation
+    wxString platforms;     // comma separated, for the "will it run here" hint
 };
 
 struct BtAttachRequest
@@ -38,13 +46,18 @@ public:
     std::vector<BtAttachRequest> Result() const;
 
 private:
-    void SyncUrlFromChoice();
+    // Rebuilds the tree, keeping only projects matching `filter` (empty = all).
+    void BuildTree(const wxString& filter);
+    void OnTreeSelect();
 
     class wxCheckListBox*  m_computers;
-    class wxChoice*        m_project;
+    class wxTextCtrl*      m_filter;
+    class wxTreeCtrl*      m_tree;
+    class wxTextCtrl*      m_desc;
     class wxTextCtrl*      m_url;
     class wxTextCtrl*      m_email;
     class wxTextCtrl*      m_password;
     class wxTextCtrl*      m_key;
     std::vector<BtProjectChoice> m_known;
+    int m_selected = -1;        // index into m_known, -1 when nothing picked
 };

@@ -20,3 +20,19 @@ mkdir -p "$SRC/release-22.04"
 mv -f "$SRC"/BoincTasksPP-*.AppImage "$SRC/release-22.04/" 2>/dev/null || true
 mv -f "$SRC"/boinctasks-pp_*.deb "$SRC/release-22.04/" 2>/dev/null || true
 ls -lh "$SRC/release-22.04/"
+
+# make-appimage.sh drops to a portable tarball when appimagetool is missing.
+# That is fine for a local build, but a release that quietly ships one artifact
+# short - and still exits 0 - is how a stale package reaches somebody.
+missing=0
+for f in "BoincTasksPP-$VERSION-x86_64.AppImage" "boinctasks-pp_${VERSION}_amd64.deb"; do
+    if [ ! -f "$SRC/release-22.04/$f" ]; then
+        echo "!! MISSING: $f"
+        missing=1
+    fi
+done
+if [ "$missing" -ne 0 ]; then
+    echo "!! release build incomplete for $VERSION - refusing to report success"
+    exit 1
+fi
+echo "== both $VERSION artifacts present =="

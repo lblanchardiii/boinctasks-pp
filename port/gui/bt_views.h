@@ -10,6 +10,12 @@
 #include <wx/panel.h>
 #include <functional>
 #include <algorithm>
+
+// Open a URL, and say so when that is not possible instead of doing nothing.
+// A machine with no browser installed - or with no xdg-open to find one - is
+// not unusual for a BOINC host, and wxLaunchDefaultBrowser fails silently on
+// one. The address is copied to the clipboard so it can still be used.
+bool BtOpenUrl(wxWindow* parent, const wxString& url);
 #include <map>
 
 // ---- Tasks: grouped tree with progress bars --------------------------------
@@ -238,10 +244,27 @@ public:
     void SetRows(const std::vector<BtProjectRow>& rows);
     void SetOpHandler(OpHandler h) { m_onOp = std::move(h); }
 
+    // Last column: this host's ID on that project, as a link to its Free-DC
+    // page. Appended rather than inserted so saved column widths and the
+    // show/hide settings of the existing columns keep their meaning.
+    enum { COL_FREEDC = 15 };
+
 private:
     void OnContextMenu(wxContextMenuEvent& ev);
+    void OnLeftDown(wxMouseEvent& ev);
+    void OnMotion(wxMouseEvent& ev);
+    // row/column under a mouse event, coping with both coordinate spaces
+    bool CellAt(const wxMouseEvent& ev, long& row, int& col) const;
+    wxString LinkAt(long row) const;
+    // The link cell is drawn blue and underlined; everything else is left alone.
+    wxListItemAttr* OnGetItemColumnAttr(long item, long col) const override;
+
     std::vector<BtProjectRow> m_rowData;
     OpHandler m_onOp;
+    // one attribute object reused for every cell, plus the underlined font
+    mutable wxListItemAttr m_cellAttr;
+    wxFont                 m_linkFont;
+    bool                   m_overLink = false;
 };
 
 class HistoryView : public BtListView

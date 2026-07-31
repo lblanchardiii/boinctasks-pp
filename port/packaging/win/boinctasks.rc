@@ -7,9 +7,18 @@
 /* wxWidgets loads the lowest-numbered icon as the application icon */
 aaaa ICON "boinctasks.ico"
 
+/* The version arrives from CMake (BT_VERSION), so a release bump happens in one
+   place. These defaults only apply to a bare windres run outside the build. */
+#ifndef BT_VERSION_STR
+#define BT_VERSION_STR "0.9.4"
+#endif
+#ifndef BT_VERSION_COMMA
+#define BT_VERSION_COMMA 0,9,4,0
+#endif
+
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION    0,9,0,0
-PRODUCTVERSION 0,9,0,0
+FILEVERSION    BT_VERSION_COMMA
+PRODUCTVERSION BT_VERSION_COMMA
 FILEOS         VOS_NT_WINDOWS32
 FILETYPE       VFT_APP
 BEGIN
@@ -19,12 +28,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Skillz"
             VALUE "FileDescription",  "BoincTasks++ - manage BOINC across many computers"
-            VALUE "FileVersion",      "0.9.0"
+            VALUE "FileVersion",      BT_VERSION_STR
             VALUE "InternalName",     "BoincTasksPP"
             VALUE "LegalCopyright",   "GPLv3. Based on BoincTasks by eFMer (Fred)."
             VALUE "OriginalFilename", "BoincTasksPP.exe"
             VALUE "ProductName",      "BoincTasks++"
-            VALUE "ProductVersion",   "0.9.0"
+            VALUE "ProductVersion",   BT_VERSION_STR
         END
     END
     BLOCK "VarFileInfo"
