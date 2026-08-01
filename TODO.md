@@ -79,26 +79,6 @@ truncates to `0.9` — this is a real bug that has bitten this author on another
 project. Unit-test `0.9.9` vs `0.9.10` specifically. Nothing in the code parses
 a version today, so the checker is the first place it can go wrong.
 
-**Publish.**
-The site still carries 0.9.1, Linux only; the Windows installer was pulled
-pending testing. Once a build is signed off: regenerate `download.html` and
-`latest.json` *from the actual files*, upload, and remember nginx caches
-aggressively — verify with a cache-buster, and check each file's checksum
-independently rather than concatenating them, which once masked a stale page.
-
-**GitHub.**
-Nothing pushed yet: the Windows commits plus everything since. Then tag and cut
-a release with all three artifacts.
 
 **Toolbars.**
 Not ported. Every command is on a menu instead.
-
-## Housekeeping, not the application
-
-- Rotate the credentials shared during development: `skillz` SSH, `freedc`
-  cPanel, `donations_rw`, and the `btpp` FTP account
-- The development host has a stale XFCE session on `:0` alongside the xrdp one
-  on `:10` — two full desktops, and the source of a lot of confusion about
-  which screen a browser opened on
-- `dbus-x11` is not installed there, which makes GTK applications complain
-  about the accessibility bus
