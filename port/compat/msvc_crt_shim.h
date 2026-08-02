@@ -1,5 +1,22 @@
 // MSVC "secure CRT" mappings for POSIX builds (shared by bt_compat.h and config.h)
 #pragma once
+
+// Feature macros BOINC's Windows headers test. They cannot live in config.h:
+// on Windows BOINC includes boinc_win.h directly and never reads config.h at
+// all, whereas this file is force-included into every translation unit.
+//
+// MinGW's ws2tcpip.h already declares socklen_t (as int), and <string.h>
+// already has strcasecmp; without these, boinc_win.h and str_replace.h declare
+// their own and collide. strlcpy/strlcat really are missing on MinGW, so those
+// stay unset and BOINC supplies them.
+#ifdef _WIN32
+  #ifndef HAVE_SOCKLEN_T
+    #define HAVE_SOCKLEN_T 1
+  #endif
+  #ifndef HAVE_STRCASECMP
+    #define HAVE_STRCASECMP 1
+  #endif
+#endif
 #if !defined(_WIN32) && defined(__cplusplus)
 #include <cstdio>
 #include <cstring>

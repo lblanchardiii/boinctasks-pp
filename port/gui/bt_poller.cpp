@@ -4,6 +4,7 @@
 #include "bt_estimate.h"
 #include "gui_rpc_client.h"
 #include "common_defs.h"
+#include "coproc.h"   // PROC_TYPE_* for the GPU kind
 #include <wx/datetime.h>
 #include <wx/utils.h>
 #include <fstream>
@@ -200,7 +201,7 @@ void BtPoller::Run()
             APP* app = nullptr;
             if (wu) {
                 app = state.lookup_app(proj, wu->app_name);
-                wxString appName = app && !app->user_friendly_name.empty()
+                wxString appName = app && app->user_friendly_name[0]
                                  ? wxString(app->user_friendly_name) : wxString(wu->app_name);
                 // BoincTasks shows "<version> <app name>", e.g. "7.61 Mapping Cancer Markers"
                 row.application = wxString::Format("%.2f %s",
@@ -211,10 +212,21 @@ void BtPoller::Run()
                                                            r->plan_class);
                 if (av) {
                     row.useCpus = av->avg_ncpus;
-                    // ncudas/natis are authoritative; plan_class covers the rest
-                    row.isGpu = (av->ncudas > 0) || (av->natis > 0);
-                    if (av->ncudas > 0)     { row.useGpus = av->ncudas; row.gpuKind = "NV"; }
-                    else if (av->natis > 0) { row.useGpus = av->natis;  row.gpuKind = "ATI"; }
+                    // The client names the device itself in gpu_type, so this no
+                    // longer has to be inferred from ncudas/natis - which could
+                    // only ever describe NVIDIA and AMD, and left Intel and Apple
+                    // GPUs looking like CPU work.
+                    row.isGpu = (av->gpu_type != PROC_TYPE_CPU) && (av->gpu_usage > 0);
+                    if (row.isGpu) {
+                        row.useGpus = av->gpu_usage;
+                        switch (av->gpu_type) {
+                            case PROC_TYPE_NVIDIA_GPU: row.gpuKind = "NV";   break;
+                            case PROC_TYPE_AMD_GPU:    row.gpuKind = "ATI";  break;
+                            case PROC_TYPE_INTEL_GPU:  row.gpuKind = "INTC"; break;
+                            case PROC_TYPE_APPLE_GPU:  row.gpuKind = "APPL"; break;
+                            default:                   row.gpuKind = "GPU";  break;
+                        }
+                    }
                 }
             }
             row.name       = r->name;
@@ -256,7 +268,7 @@ void BtPoller::Run()
                 m_cpuPrev[r->name] = { r->elapsed_time, r->current_cpu_time };
             }
             if (!row.isGpu) {
-                wxString pc = wxString(r->plan_class.c_str()).Lower();
+                wxString pc = wxString(r->plan_class).Lower();
                 row.isGpu = pc.Contains("cuda") || pc.Contains("nvidia") ||
                             pc.Contains("ati")  || pc.Contains("opencl") ||
                             pc.Contains("intel_gpu");
@@ -309,7 +321,7 @@ void BtPoller::Run()
                 row.share         = p->resource_share;
                 row.hostCredit    = p->host_total_credit;
                 row.hostAvgCredit = p->host_expavg_credit;
-                row.venue         = wxString::FromUTF8(p->venue.c_str());
+                row.venue         = wxString::FromUTF8(p->venue);
                 row.hostCpid  = wxString::FromUTF8(state.host_info.host_cpid);
                 row.hostId    = p->hostid;
                 row.status    = projectStatus(*p);
@@ -376,9 +388,8 @@ void BtPoller::Run()
                 h.computer   = m_computer.name;
                 h.name       = name;
                 h.project    = wxString::FromUTF8(o.project_url);
-                std::string purl(o.project_url);
-                PROJECT* pr  = state.lookup_project(purl);
-                if (pr && !pr->project_name.empty()) h.project = pr->project_name;
+                PROJECT* pr  = state.lookup_project(o.project_url);
+                if (pr && pr->project_name[0]) h.project = pr->project_name;
                 h.application = wxString::FromUTF8(o.app_name);
                 h.elapsed     = o.elapsed_time;
                 h.cpuTime     = o.cpu_time;
@@ -460,7 +471,7 @@ void BtPoller::Run()
             snap->platform = wxString::FromUTF8(state.platforms[0].c_str());
         {
             VERSION_INFO vi;
-            if (rpc.exchange_versions(vi) == 0)
+            if (rpc.exchange_versions("BoincTasks++", vi) == 0)
                 snap->clientVersion = wxString::Format("%d.%d.%d",
                                         vi.major, vi.minor, vi.release);
         }

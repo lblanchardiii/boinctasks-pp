@@ -26,7 +26,6 @@
 #include "../version.h"
 #else
 #include "config.h"
-#include <errno.h>
 #ifdef __EMX__
 #include <sys/time.h>
 #endif
@@ -131,19 +130,12 @@ int RPC_CLIENT::init(const char* host, int port) {
 //	  tv.tv_sec = 120;
 //    tv.tv_usec = 60000;
 
-#ifdef _WIN32
 	DWORD dwTime = 30000;   // 1.83 changed 60 -> 30 seconds
 	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&dwTime,  sizeof dwTime))
 	{
         // not fatal
 		int ii = 1;
 	} 
-#else
-	struct timeval rcvtv;
-	rcvtv.tv_sec = 30;
-	rcvtv.tv_usec = 0;
-	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&rcvtv, sizeof rcvtv);  // not fatal on failure
-#endif
     retval = connect(sock, (const sockaddr*)(&addr), addr_len(addr));
     if (retval) {
 #ifdef _WIN32
@@ -151,15 +143,12 @@ int RPC_CLIENT::init(const char* host, int port) {
 #endif
         BOINCTRACE("RPC_CLIENT::init connect on %d returned %d\n", sock, retval);
 
-#ifdef _WIN32
 		int iError = WSAGetLastError();
+
+        //perror("connect");
         close();
 		if (iError == WSAETIMEDOUT) return ERR_TIMEOUT;
-#else
-		int iError = errno;
-        close();
-		if (iError == ETIMEDOUT) return ERR_TIMEOUT;
-#endif
+
         return ERR_CONNECT;
     }
 
@@ -171,9 +160,8 @@ int RPC_CLIENT::init_asynch(
 ) {
     int retval;
 	memset(&addr, 0, sizeof(addr));
-    sockaddr_in* sin4 = (sockaddr_in*)&addr;
-    sin4->sin_family = AF_INET;
-    sin4->sin_port = htons(port);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
     retry = _retry;
     timeout = _timeout;
 
@@ -183,9 +171,9 @@ int RPC_CLIENT::init_asynch(
             //perror("gethostbyname");
             return ERR_GETHOSTBYNAME;
         }
-        sin4->sin_addr.s_addr = *(int*)hep->h_addr_list[0];
+        addr.sin_addr.s_addr = *(int*)hep->h_addr_list[0];
     } else {
-        sin4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     }
 
     retval = boinc_socket(sock);

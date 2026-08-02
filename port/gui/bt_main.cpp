@@ -43,6 +43,9 @@
 #include <wx/fileconf.h>
 #include <wx/notifmsg.h>
 #include "gui_rpc_client.h"
+#include "str_replace.h"   // strlcpy on platforms lacking it (MinGW)
+#include "str_util.h"
+#include "bt_ccconfig.h"   // safe_strcpy: RESULT/PROJECT string fields are char[] upstream
 #ifdef _WIN32
   #include "network.h"
 #endif
@@ -1067,8 +1070,8 @@ private:
             std::string name(t.name.mb_str()), url(t.projectUrl.mb_str());
             it->second->Post([name, url, sop](RPC_CLIENT& rpc) {
                 RESULT r;
-                r.name        = name;
-                r.project_url = url;
+                safe_strcpy(r.name, name.c_str());
+                safe_strcpy(r.project_url, url.c_str());
                 rpc.result_op(r, sop.c_str());
             });
             sent++;
@@ -1087,7 +1090,7 @@ private:
             std::string url(p.masterUrl.mb_str());
             it->second->Post([url, sop](RPC_CLIENT& rpc) {
                 PROJECT pr;
-                pr.master_url = url;
+                safe_strcpy(pr.master_url, url.c_str());
                 rpc.project_op(pr, sop.c_str());
             });
             sent++;
@@ -1443,7 +1446,7 @@ private:
             std::string url(target.second.mb_str());
             it->second->Post([url](RPC_CLIENT& rpc) {
                 PROJECT pr;
-                pr.master_url = url;
+                safe_strcpy(pr.master_url, url.c_str());
                 rpc.project_op(pr, "update");
             });
             sent++;
@@ -1511,7 +1514,7 @@ private:
             std::string task(act.taskName.mb_str());
             it->second->Post([event, snooze, url, task](RPC_CLIENT& rpc) {
                 PROJECT pr;
-                pr.master_url = url;
+                safe_strcpy(pr.master_url, url.c_str());
                 switch (event) {
                     case BTE_SUSPEND_PROJECT: rpc.project_op(pr, "suspend"); break;
                     case BTE_RESUME_PROJECT:  rpc.project_op(pr, "resume"); break;
@@ -1519,8 +1522,8 @@ private:
                     case BTE_ALLOW_NEW_WORK:  rpc.project_op(pr, "allowmorework"); break;
                     case BTE_SUSPEND_TASK: {
                         RESULT r;
-                        r.name        = task;
-                        r.project_url = url;
+                        safe_strcpy(r.name, task.c_str());
+                        safe_strcpy(r.project_url, url.c_str());
                         rpc.result_op(r, "suspend");
                         break;
                     }
@@ -1758,7 +1761,7 @@ private:
         poller->Post([self, poller, name](RPC_CLIENT& rpc) {
             CC_CONFIG cfg; LOG_FLAGS flags;
             auto text = std::make_shared<std::string>();
-            int rc = rpc.get_cc_config_raw(cfg, flags, *text);
+            int rc = BtGetCcConfigRaw(rpc, *text);
             wxTheApp->CallAfter([self, poller, name, text, rc]() {
                 if (rc != 0) {
                     wxMessageBox("Could not read cc_config.xml from " + name + ".",
@@ -1790,7 +1793,7 @@ private:
         auto body = std::make_shared<std::string>(edit->GetValue().mb_str());
         MainFrame* self = this;
         poller->Post([self, name, body](RPC_CLIENT& rpc) {
-            bool ok = rpc.set_cc_config_raw(body.get()) == 0 && rpc.read_cc_config() == 0;
+            bool ok = BtSetCcConfigRaw(rpc, *body) == 0 && rpc.read_cc_config() == 0;
             wxString msg = ok ? "cc_config.xml saved" : "cc_config.xml: write failed";
             wxTheApp->CallAfter([self, name, msg]() {
                 self->SetStatusText(name + ": " + msg, 1);
@@ -1987,7 +1990,7 @@ private:
                 CC_CONFIG cfg; LOG_FLAGS flags;
                 if (rpc.get_cc_config(cfg, flags) == 0) {
                     cfg.exclusive_apps = newApps;
-                    bool ok = rpc.set_cc_config(cfg, flags, 0) == 0 &&
+                    bool ok = rpc.set_cc_config(cfg, flags) == 0 &&
                               rpc.read_cc_config() == 0;
                     result += result.IsEmpty() ? "" : "; ";
                     result += ok ? "exclusive applications applied"
@@ -2226,7 +2229,9 @@ private:
                 }
 
                 if (msg.IsEmpty() && !auth.empty()) {
-                    if (rpc.project_attach(url.c_str(), auth.c_str(), name.c_str()) == 0) {
+                    // The fourth argument is the account's email address, which
+                    // the client only uses for display; empty is allowed.
+                    if (rpc.project_attach(url.c_str(), auth.c_str(), name.c_str(), "") == 0) {
                         PROJECT_ATTACH_REPLY reply;
                         for (int i = 0; i < 60; i++) {
                             if (rpc.project_attach_poll(reply) == 0 &&

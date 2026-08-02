@@ -73,50 +73,71 @@ if(WIN32)
     add_compile_definitions(USE_WINSOCK WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
     include_directories(
         ${BT_ROOT}/BoincTasks
-        ${BT_ROOT}/BoincLibrary
+        ${BT_ROOT}/third_party/boinc/lib
+        ${BT_ROOT}/third_party/boinc
         ${CMAKE_CURRENT_SOURCE_DIR}/compat
     )
 else()
     include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/compat
         ${BT_ROOT}/BoincTasks
-        ${BT_ROOT}/BoincLibrary
+        ${BT_ROOT}/third_party/boinc/lib
+        ${BT_ROOT}/third_party/boinc
     )
 endif()
 
-set_source_files_properties(${BT_ROOT}/BoincLibrary/Boinc/md5.c PROPERTIES LANGUAGE C)
-
-# ---- BOINC's own cross-platform gui-rpc library ------------------------------
-# The only path to a client. Phase 1 went through eFMer's CRpcClient wrapper,
-# kept compiling on Linux by a shim over the Win32 socket calls; nothing uses it
-# now, so neither it nor the shim is built.
+# ---- BOINC's own gui-rpc library, from BOINC itself --------------------------
+# third_party/boinc is a submodule pinned to a BOINC release tag, not a copy.
+# This used to build BoincLibrary/, the snapshot carried inside eFMer's tree,
+# which claimed 6.13.0 and predated Intel and Apple GPU support entirely. Every
+# local patch that snapshot needed - sockaddr_storage, the receive timeout, the
+# xlocale guard, a strdup line that could not compile - is already fixed
+# upstream, so nothing is carried across.
 add_library(boinclib STATIC
-    ${BT_ROOT}/BoincLibrary/Boinc/gui_rpc_client.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/gui_rpc_client_ops.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/gui_rpc_client_print.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/network.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/miofile.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/mfile.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/parse.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/str_util.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/util.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/md5_file.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/md5.c
-    ${BT_ROOT}/BoincLibrary/Boinc/proxy_info.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/prefs.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/notice.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/hostinfo.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/cc_config.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/coproc.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/filesys.cpp
-    ${BT_ROOT}/BoincLibrary/Boinc/url.cpp
+    ${BT_ROOT}/third_party/boinc/lib/gui_rpc_client.cpp
+    ${BT_ROOT}/third_party/boinc/lib/gui_rpc_client_ops.cpp
+    ${BT_ROOT}/third_party/boinc/lib/gui_rpc_client_print.cpp
+    ${BT_ROOT}/third_party/boinc/lib/network.cpp
+    ${BT_ROOT}/third_party/boinc/lib/miofile.cpp
+    ${BT_ROOT}/third_party/boinc/lib/mfile.cpp
+    ${BT_ROOT}/third_party/boinc/lib/parse.cpp
+    ${BT_ROOT}/third_party/boinc/lib/str_util.cpp
+    ${BT_ROOT}/third_party/boinc/lib/util.cpp
+    ${BT_ROOT}/third_party/boinc/lib/md5_file.cpp
+    ${BT_ROOT}/third_party/boinc/lib/md5.cpp
+    ${BT_ROOT}/third_party/boinc/lib/proxy_info.cpp
+    ${BT_ROOT}/third_party/boinc/lib/prefs.cpp
+    ${BT_ROOT}/third_party/boinc/lib/notice.cpp
+    ${BT_ROOT}/third_party/boinc/lib/hostinfo.cpp
+    ${BT_ROOT}/third_party/boinc/lib/cc_config.cpp
+    ${BT_ROOT}/third_party/boinc/lib/coproc.cpp
+    # split out of coproc/cc_config since eFMer's snapshot was taken
+    ${BT_ROOT}/third_party/boinc/lib/opencl_boinc.cpp
+    ${BT_ROOT}/third_party/boinc/lib/keyword.cpp
+    ${BT_ROOT}/third_party/boinc/lib/filesys.cpp
+    ${BT_ROOT}/third_party/boinc/lib/url.cpp
 )
 
 # daemonising, fork/setsid - Unix only, and not needed by a GUI client anyway
 if(NOT WIN32)
-    target_sources(boinclib PRIVATE ${BT_ROOT}/BoincLibrary/Boinc/unix_util.cpp)
+    target_sources(boinclib PRIVATE ${BT_ROOT}/third_party/boinc/lib/unix_util.cpp)
+else()
+    # BOINCTRACE compiles to a real call on Windows (diagnostics.cpp), and the
+    # Windows branches of util.cpp reach for the error-formatting and WSL
+    # helpers in win_util.cpp.
+    # win_util: error formatting and the WSL helpers util.cpp calls.
+    # wslinfo:   WSL_DISTROS, which hostinfo.cpp parses out of the client reply.
+    # bt_win_stubs: boinc_trace, so diagnostics.cpp and its crash-handling
+    #               dependencies stay out of the build entirely.
+    target_sources(boinclib PRIVATE
+        ${BT_ROOT}/third_party/boinc/lib/win_util.cpp
+        ${BT_ROOT}/third_party/boinc/lib/wslinfo.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/compat/bt_win_stubs.cpp
+    )
 endif()
-target_include_directories(boinclib PUBLIC ${BT_ROOT}/BoincLibrary/Boinc)
+target_include_directories(boinclib PUBLIC
+    ${BT_ROOT}/third_party/boinc/lib
+    ${BT_ROOT}/third_party/boinc)
 
 # ---- headless smoke test ----------------------------------------------------
 # Connects to a live client and reads its status: the quickest way to tell a
@@ -142,6 +163,7 @@ add_executable(boinctasks
     gui/bt_freedc.cpp
     gui/bt_import.cpp
     gui/bt_estimate.cpp
+    gui/bt_ccconfig.cpp
     gui/bt_taskinfo.cpp
 )
 target_compile_definitions(boinctasks PRIVATE BT_VERSION_STR="${BT_VERSION}")

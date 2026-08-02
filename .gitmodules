@@ -1,0 +1,4 @@
+[submodule "third_party/boinc"]
+	path = third_party/boinc
+	url = https://github.com/BOINC/boinc.git
+	branch = client_release/8/8.2

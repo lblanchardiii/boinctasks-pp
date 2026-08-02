@@ -1,3 +1,13 @@
+// Winsock first, and before any BOINC header. lib/network.h does
+//     #define sockaddr_storage sockaddr_in
+// on Windows as a deliberate workaround; once that macro exists, the
+// struct sockaddr_storage inside ws2tcpip.h is rewritten to sockaddr_in and
+// redefines it. Parsing the real headers first sidesteps that entirely.
+#ifdef _WIN32
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+#endif
+
 #include "bt_scan.h"
 #include "bt_settings.h"
 #include <wx/checklst.h>
@@ -18,8 +28,6 @@
 // genuinely differ: Winsock needs its own headers, an explicit startup call,
 // closesocket() rather than close(), and ioctlsocket() for non-blocking mode.
 #ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
   #define BT_CLOSESOCKET closesocket
   using bt_socket_t = SOCKET;
   static const bt_socket_t BT_INVALID_SOCKET = INVALID_SOCKET;
@@ -91,7 +99,12 @@ ProbeResult Probe(const char* addr, int port, int timeoutMs)
         tv.tv_usec = (timeoutMs % 1000) * 1000;
         if (select((int)fd + 1, nullptr, &wf, &ef, &tv) > 0) {
             int err = 0;
+            // Winsock spells this int; POSIX spells it socklen_t.
+#ifdef _WIN32
+            int len = sizeof(err);
+#else
             socklen_t len = sizeof(err);
+#endif
             getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&err, &len);
             res = (err == 0) ? PROBE_OPEN
                 : (err == BT_ECONNREFUSED) ? PROBE_REFUSED : PROBE_TIMEOUT;
@@ -208,7 +221,7 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
                     if (rpc.get_state(state) == 0)
                         r.hostname = wxString::FromUTF8(state.host_info.domain_name);
                     VERSION_INFO vi;
-                    if (rpc.exchange_versions(vi) == 0)
+                    if (rpc.exchange_versions("BoincTasks++", vi) == 0)
                         r.version = wxString::Format("%d.%d.%d",
                                         vi.major, vi.minor, vi.release);
                 }
