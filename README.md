@@ -7,12 +7,12 @@ BOINC across every computer you run, from one window. Linux and Windows.
 install guides and screenshots · **[Discord](https://discord.gg/ZhGtfVkTvW)** — questions, help and
 release announcements
 
-[**Download 0.9.4**](https://github.com/lblanchardiii/boinctasks-pp/releases/latest)
+[**Download 0.9.5**](https://github.com/lblanchardiii/boinctasks-pp/releases/latest)
 
-**Linux** — [AppImage](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/BoincTasksPP-0.9.4-x86_64.AppImage)
- · [.deb](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/boinctasks-pp_0.9.4_amd64.deb)
- — **Windows** — [installer](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/BoincTasksPP-0.9.4-setup.exe)
- — [checksums](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/SHA256SUMS)
+**Linux** — [AppImage](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/BoincTasksPP-0.9.5-x86_64.AppImage)
+ · [.deb](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/boinctasks-pp_0.9.5_amd64.deb)
+ — **Windows** — [installer](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/BoincTasksPP-0.9.5-setup.exe)
+ — [checksums](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/SHA256SUMS)
 
 ![The Tasks view](docs/tasks.jpg)
 
@@ -33,7 +33,7 @@ Windows does not have to relearn anything.
 
 ## Status
 
-**0.9.4.** Feature complete against BoincTasks Classic apart from the parts that
+**0.9.5.** Feature complete against BoincTasks Classic apart from the parts that
 are Windows-specific, and in testing. Developed against a farm of 41 clients.
 
 ## Install
@@ -50,22 +50,22 @@ anything with glibc 2.34 or newer and GTK 3. x86-64 only for now.
 **AppImage** — no installation:
 
 ```sh
-wget https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/BoincTasksPP-0.9.4-x86_64.AppImage
-chmod +x BoincTasksPP-0.9.4-x86_64.AppImage
-./BoincTasksPP-0.9.4-x86_64.AppImage
+wget https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/BoincTasksPP-0.9.5-x86_64.AppImage
+chmod +x BoincTasksPP-0.9.5-x86_64.AppImage
+./BoincTasksPP-0.9.5-x86_64.AppImage
 ```
 
 **Debian / Ubuntu:**
 
 ```sh
-wget https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/boinctasks-pp_0.9.4_amd64.deb
-sudo apt install ./boinctasks-pp_0.9.4_amd64.deb
+wget https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/boinctasks-pp_0.9.5_amd64.deb
+sudo apt install ./boinctasks-pp_0.9.5_amd64.deb
 ```
 
 ### Windows
 
 Windows 10 and 11, 64-bit. Run
-[the installer](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/BoincTasksPP-0.9.4-setup.exe) —
+[the installer](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.5/BoincTasksPP-0.9.5-setup.exe) —
 it installs to Program Files, adds Start menu entries and registers with
 Add/Remove Programs. There is no runtime to install first: the executable is
 statically linked, so there is no MSVC redistributable and no DLLs beside it.
@@ -103,7 +103,7 @@ older than the build host:
 
 ```sh
 podman build -t bt-build22 -f port/packaging/Containerfile.build22 port/packaging
-podman run --rm -e VERSION=0.9.4 \
+podman run --rm -e VERSION=0.9.5 \
     -v "$PWD":/src:z \
     -v /opt/appimagetool:/opt/appimagetool:ro \
     -v /usr/local/bin/appimagetool-real:/usr/local/bin/appimagetool-real:ro \
@@ -116,7 +116,7 @@ cross-compiles from the same source with MinGW-w64:
 
 ```sh
 podman build -t bt-win64 -f port/packaging/Containerfile.win64 port/packaging
-podman run --rm -e VERSION=0.9.4 -v "$PWD":/src:z bt-win64 \
+podman run --rm -e VERSION=0.9.5 -v "$PWD":/src:z bt-win64 \
     bash /src/port/packaging/build-windows.sh
 ```
 
@@ -124,9 +124,9 @@ That produces `release-windows/BoincTasksPP.exe`. The installer needs `makensis`
 which likewise is not in the image — run it on the host afterwards:
 
 ```sh
-cd port/packaging/win && makensis -DVERSION=0.9.4 -DVERSION_NUM=0.9.4.0 \
+cd port/packaging/win && makensis -DVERSION=0.9.5 -DVERSION_NUM=0.9.5.0 \
     -DSRCEXE=../../../release-windows/BoincTasksPP.exe \
-    -DOUTFILE=../../../release-windows/BoincTasksPP-0.9.4-setup.exe installer.nsi
+    -DOUTFILE=../../../release-windows/BoincTasksPP-0.9.5-setup.exe installer.nsi
 ```
 
 `VERSION_NUM` is separate because Windows version resources take four integers

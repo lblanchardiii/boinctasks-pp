@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.9.5 — 2026-08-02
+
+**Import computers from BoincTasks (Classic).** `File -> Import computers from
+BoincTasks...` reads an eFMer `computers.xml` and adds its hosts: name, group,
+address, port, password and the enabled tick all carry over. Existing entries
+are never overwritten, so importing twice is harmless. Encrypted passwords
+cannot be read, and those hosts arrive with a blank password to fill in. Tested
+against a 157-host list.
+
+**Time Left estimates when the work will finish, rather than adding it up.** A
+queue of 1162 hour-long tasks on a 32-thread host used to read 54 days, because
+every task's remaining time was summed. The host runs 32 at a time, so it is
+through the queue in under two. Collapsed task groups and the Projects tab both
+estimate against the host's real capacity: core count, the "use at most N% of
+the processors" preference, the CPU throttle, and the cores that running GPU
+tasks are holding. GPU work is estimated against the GPU rather than the CPU
+pool, and no estimate is ever shorter than the longest single task.
+
+**Computer names have to be unique.** Every host is tracked by its name, so two
+the same meant two pollers writing one entry and a host that flickered between
+connected and not - and trying to correct it could hang the window. Adding,
+renaming in the Edit dialog, and renaming a cell in place all now refuse a name
+already on the list, compared without regard to case.
+
+**Large fleets no longer freeze the window.** Ticking a computer's checkbox or
+editing one retires the pollers and starts them again. That used to join every
+poller thread in turn on the GUI thread, and a poller inside an RPC call cannot
+notice it has been stopped until its socket times out. With ninety-six clients
+the window locked up for minutes. Every poller is now told to stop at once so
+the timeouts overlap, and the joining happens off the GUI thread.
+
+**Editing a cell on the Computers tab works on Windows.** The click handler was
+bound only to the list's child windows. GTK's list keeps its rows in an inner
+child so it worked there, but the native Windows control has no children, so
+nothing was ever bound.
+
+**The Use column shows GPU work, and only what is running.** It read `avg_ncpus`
+alone, so a GPU task looked like a CPU one. Collapsed rows were blank; they now
+show what the whole group occupies, counting only tasks actually executing - a
+queue of 1088 waiting tasks is not holding 1088 cores.
+
+**The Computers sidebar marks hosts that are down.** A disconnected host carries
+a "no entry" icon rather than looking identical to a healthy one.
+
+**Lists repaint only the rows that changed** instead of every visible row on
+every poll, which had the views looking like they were flashing.
+
+**Add project opens at a usable size on Windows** - the tree and description
+panes were being squeezed to nothing - **and ticks only the computer selected in
+the sidebar** rather than every computer on the list.
+
+**The Free-DC link cursor works on Linux.** It was set after `ev.Skip()`, so the
+list overwrote it.
+
 ## 0.9.4 — 2026-07-31
 
 ### Free-DC Host ID on Linux

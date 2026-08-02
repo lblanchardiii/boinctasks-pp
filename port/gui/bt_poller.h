@@ -26,6 +26,13 @@ public:
           m_intervalMs(intervalMs), m_staggerMs(staggerMs),
           m_stop(false), m_thread(&BtPoller::Run, this) {}
 
+    // Ask the thread to finish without waiting for it. A poller blocked in an
+    // RPC call cannot notice this until its socket read times out, so stopping a
+    // fleet means signalling every one of them first and only then joining -
+    // otherwise the waits queue up one behind the next.
+    void Signal() { m_stop = true; }
+    bool Stopping() const { return m_stop; }
+
     ~BtPoller() { m_stop = true; if (m_thread.joinable()) m_thread.join(); }
 
     // Queue work to run on this computer's RPC connection. The connection is

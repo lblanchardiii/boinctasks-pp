@@ -1,6 +1,7 @@
 #include "bt_poller.h"
 #include "bt_settings.h"
 #include "bt_config.h"
+#include "bt_estimate.h"
 #include "gui_rpc_client.h"
 #include "common_defs.h"
 #include <wx/datetime.h>
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <deque>
 #include <set>
+#include <algorithm>
 
 static wxString taskStatus(const RESULT& r)
 {
@@ -135,6 +137,8 @@ void BtPoller::Run()
     std::set<wxString> seenCompleted;   // already-emitted completed tasks
     std::vector<BtStatSeries> cachedStats;
     int statsAge = 9999;
+    double cachedMaxNcpusPct  = 100;
+    double cachedCpuUsageLimit = 100;
 
     while (!m_stop) {
         auto snap = std::make_shared<BtSnapshot>();
@@ -147,6 +151,7 @@ void BtPoller::Run()
             } else {
                 snap->computer = m_computer.name;
                 snap->error    = "not connected";
+                if (m_stop) break;
                 m_onSnapshot(snap);
                 for (int i = 0; i < 50 && !m_stop; i++) wxMilliSleep(100);
                 continue;
@@ -167,6 +172,16 @@ void BtPoller::Run()
         if (stateAge >= stateEvery) {   // refresh project/app names every ~30s
             if (rpc.get_state(state) == 0) stateAge = 0;
             else { connected = false; continue; }
+            // How much of this machine BOINC is allowed to use. Needed to say
+            // how long a queue will take, and it changes about as often as the
+            // project list does, so it rides the same 30s refresh rather than
+            // costing an RPC per poll.
+            GLOBAL_PREFS      gp;
+            GLOBAL_PREFS_MASK mask;
+            if (rpc.get_global_prefs_working_struct(gp, mask) == 0) {
+                if (gp.max_ncpus_pct   > 0) cachedMaxNcpusPct  = gp.max_ncpus_pct;
+                if (gp.cpu_usage_limit > 0) cachedCpuUsageLimit = gp.cpu_usage_limit;
+            }
         }
         stateAge++;
 
@@ -198,6 +213,8 @@ void BtPoller::Run()
                     row.useCpus = av->avg_ncpus;
                     // ncudas/natis are authoritative; plan_class covers the rest
                     row.isGpu = (av->ncudas > 0) || (av->natis > 0);
+                    if (av->ncudas > 0)     { row.useGpus = av->ncudas; row.gpuKind = "NV"; }
+                    else if (av->natis > 0) { row.useGpus = av->natis;  row.gpuKind = "ATI"; }
                 }
             }
             row.name       = r->name;
@@ -243,6 +260,16 @@ void BtPoller::Run()
                 row.isGpu = pc.Contains("cuda") || pc.Contains("nvidia") ||
                             pc.Contains("ati")  || pc.Contains("opencl") ||
                             pc.Contains("intel_gpu");
+                // The plan class says which device but never how many, so assume
+                // one. That is right for almost every project, and a wrong count
+                // is worse than no count.
+                if (row.isGpu && row.useGpus <= 0) {
+                    row.useGpus = 1;
+                    row.gpuKind = pc.Contains("intel") ? "INTC"
+                                : (pc.Contains("ati") || pc.Contains("amd")) ? "ATI"
+                                : (pc.Contains("cuda") || pc.Contains("nvidia")) ? "NV"
+                                : "GPU";
+                }
             }
             row.status   = taskStatus(*r);
 
@@ -290,12 +317,30 @@ void BtPoller::Run()
                 row.suspended = p->suspended_via_gui;
                 // Windows shows how many tasks a project is holding and how
                 // much work that is; both come from the task list we just built
+                std::vector<BtTaskRow> mine;
                 for (const auto& t : snap->tasks) {
                     if (t.projectUrl != row.masterUrl) continue;
                     row.taskCount++;
                     if (t.isGpu) row.gpuTasks++; else row.cpuTasks++;
-                    row.timeLeft += t.timeLeft;
+                    mine.push_back(t);
                 }
+                // Not the sum. A thousand hour-long tasks is a thousand hours of
+                // work but not a thousand hours of waiting - the host runs as
+                // many at once as it has cores for. Estimated as if this project
+                // had the machine to itself, which is what the column is asked to
+                // answer; a host splitting time between projects takes longer.
+                // Straight from the state and the cached prefs, not from snap:
+                // those fields are filled in further down, after this runs, so
+                // reading them here saw a core count of zero and fell back to
+                // the longest single task.
+                BtCapacity cap;
+                cap.ncpus         = state.host_info.p_ncpus;
+                cap.maxNcpusPct   = cachedMaxNcpusPct;
+                cap.cpuUsageLimit = cachedCpuUsageLimit;
+                double span = BtWallClockRemaining(mine, cap);
+                if (span <= 0)   // core count not in yet; the longest task at least
+                    for (const auto& t : mine) span = std::max(span, t.timeLeft);
+                row.timeLeft = std::max(0.0, span);
                 snap->projects.push_back(std::move(row));
             }
         }
@@ -408,6 +453,9 @@ void BtPoller::Run()
         snap->connected = true;
         snap->computer  = m_computer.name;
         snap->hostname  = state.host_info.domain_name;
+        snap->ncpus         = state.host_info.p_ncpus;
+        snap->maxNcpusPct   = cachedMaxNcpusPct;
+        snap->cpuUsageLimit = cachedCpuUsageLimit;
         if (!state.platforms.empty())
             snap->platform = wxString::FromUTF8(state.platforms[0].c_str());
         {
@@ -416,6 +464,9 @@ void BtPoller::Run()
                 snap->clientVersion = wxString::Format("%d.%d.%d",
                                         vi.major, vi.minor, vi.release);
         }
+        // Dropped rather than delivered when stopping: this snapshot belongs to
+        // the old generation of pollers and would land after the new ones start.
+        if (m_stop) break;
         m_onSnapshot(snap);
 
         for (int i = 0; i < m_intervalMs / 100 && !m_stop; i++) {

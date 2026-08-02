@@ -10,10 +10,10 @@ aaaa ICON "boinctasks.ico"
 /* The version arrives from CMake (BT_VERSION), so a release bump happens in one
    place. These defaults only apply to a bare windres run outside the build. */
 #ifndef BT_VERSION_STR
-#define BT_VERSION_STR "0.9.4"
+#define BT_VERSION_STR "0.9.4b"
 #endif
 #ifndef BT_VERSION_COMMA
-#define BT_VERSION_COMMA 0,9,4,0
+#define BT_VERSION_COMMA 0,9,4,2
 #endif
 
 VS_VERSION_INFO VERSIONINFO

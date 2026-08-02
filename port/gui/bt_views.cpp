@@ -336,17 +336,25 @@ void ProjectsView::OnLeftDown(wxMouseEvent& ev)
 // GTK's generic list control never calls OnGetItemColumnAttr, so the cell
 // cannot be drawn blue and underlined there the way it is on Windows. A hand
 // cursor over the cell is the affordance that does work on both.
+//
+// The cursor is set before ev.Skip(), not after. Skipping first lets the
+// control's own motion handling run and put the cursor back, which is why this
+// did nothing on Linux the first time.
 void ProjectsView::OnMotion(wxMouseEvent& ev)
 {
-    ev.Skip();
     wxWindow* src = wxDynamicCast(ev.GetEventObject(), wxWindow);
-    if (!src) return;
+    if (!src) { ev.Skip(); return; }
 
     long row = -1; int col = -1;
     bool overLink = CellAt(ev, row, col) && col == COL_FREEDC && !LinkAt(row).IsEmpty();
-    if (overLink == m_overLink) return;          // only change it when it changes
-    m_overLink = overLink;
-    src->SetCursor(overLink ? wxCursor(wxCURSOR_HAND) : wxNullCursor);
+    if (overLink != m_overLink) {                // only touch it when it changes
+        m_overLink = overLink;
+        if (overLink) src->SetCursor(wxCursor(wxCURSOR_HAND));
+        else          src->SetCursor(wxNullCursor);
+    }
+    // Over the link the default handling would reset the cursor, so it is not
+    // skipped there; everywhere else the list behaves exactly as before.
+    if (!overLink) ev.Skip();
 }
 
 void ProjectsView::OnContextMenu(wxContextMenuEvent& ev)
@@ -566,6 +574,11 @@ ComputersView::ComputersView(wxWindow* parent) : BtListView(parent)
     // Click a field to edit it in place rather than going through a dialog.
     // The generic wxListCtrl used on GTK delivers mouse events to an internal
     // child window, not to the control itself, so bind there.
+    // Both, because the two platforms deliver this from different windows: GTK's
+    // generic list puts the rows in an inner child, MSW's native one has no
+    // children at all. Binding only to the children left cell editing dead on
+    // Windows. Mouse events do not propagate to a parent, so this cannot fire twice.
+    Bind(wxEVT_LEFT_DOWN, &ComputersView::OnLeftDown, this);
     for (wxWindow* child : GetChildren())
         child->Bind(wxEVT_LEFT_DOWN, &ComputersView::OnLeftDown, this);
 }

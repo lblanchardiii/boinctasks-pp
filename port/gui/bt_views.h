@@ -27,6 +27,8 @@ public:
 
     TasksView(wxWindow* parent);
     void SetRows(std::vector<BtTaskRow>&& rows) { m_model->Update(std::move(rows)); }
+    void SetCapacities(std::map<wxString, BtCapacity> caps)
+        { m_model->SetCapacities(std::move(caps)); }
     size_t TaskCount() const { return m_model->TaskCount(); }
     void SetOpHandler(OpHandler h) { m_onOp = std::move(h); }
 
@@ -83,18 +85,44 @@ public:
         if (rows == m_rows && colours == m_colours) return;
 
         bool sameSize = (rows.size() == m_rows.size());
+
+        // Which rows actually differ. Repainting the whole visible page every
+        // poll made the view look like it was flashing, when in a settled fleet
+        // only a couple of cells move. Worked out before the move, so no copy of
+        // the table is needed.
+        std::vector<char> changed;
+        if (sameSize) {
+            changed.resize(m_rows.size());
+            for (size_t i = 0; i < m_rows.size(); i++)
+                changed[i] = (rows[i] != m_rows[i]) ||
+                             (i < colours.size() && i < m_colours.size() &&
+                              colours[i] != m_colours[i]);
+        }
+
+        const std::vector<size_t> oldOrder = m_order;
         m_rows = std::move(rows);
         m_colours = std::move(colours);
         ApplySort();
         Freeze();
         if (!sameSize) SetItemCount((long)m_rows.size());
         if (m_rows.empty()) { Thaw(); Refresh(); return; }
-        // repaint only the rows on screen rather than the whole control
+
         long first = GetTopItem();
         long last = std::min<long>((long)m_rows.size() - 1,
                                    first + GetCountPerPage() + 1);
-        if (first >= 0 && last >= first) RefreshItems(first, last);
-        else Refresh();
+        if (first < 0 || last < first) { Refresh(); Thaw(); return; }
+
+        // A row count change moves every row after the insertion point, and a
+        // re-sort moves them arbitrarily, so those still need the whole page.
+        if (!sameSize || m_order != oldOrder) {
+            RefreshItems(first, last);
+        } else {
+            for (long d = first; d <= last; d++) {
+                long src = SrcIndex(d);
+                if (src >= 0 && src < (long)changed.size() && changed[src])
+                    RefreshItem(d);
+            }
+        }
         Thaw();
     }
 

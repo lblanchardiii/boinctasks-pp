@@ -38,9 +38,14 @@ struct BtAttachRequest
 class BtAddProjectDlg : public wxDialog
 {
 public:
+    // `preselect` is the computer highlighted in the sidebar, or empty when the
+    // selection is "All computers" or a group. Only that one is ticked: making
+    // "attach to every machine" the default turns the destructive case into the
+    // easy one.
     BtAddProjectDlg(wxWindow* parent,
                     const std::vector<wxString>& computers,
-                    const std::vector<BtProjectChoice>& knownProjects);
+                    const std::vector<BtProjectChoice>& knownProjects,
+                    const wxString& preselect = wxString());
 
     // One request per selected computer.
     std::vector<BtAttachRequest> Result() const;

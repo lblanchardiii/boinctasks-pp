@@ -21,9 +21,10 @@ public:
 
 BtAddProjectDlg::BtAddProjectDlg(wxWindow* parent,
                                  const std::vector<wxString>& computers,
-                                 const std::vector<BtProjectChoice>& knownProjects)
+                                 const std::vector<BtProjectChoice>& knownProjects,
+                                 const wxString& preselect)
     : wxDialog(parent, wxID_ANY, "Add project",
-               wxDefaultPosition, wxSize(760, 640),
+               wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_known(knownProjects)
 {
@@ -35,7 +36,12 @@ BtAddProjectDlg::BtAddProjectDlg(wxWindow* parent,
     for (const auto& c : computers) names.Add(c);
     m_computers = new wxCheckListBox(this, wxID_ANY, wxDefaultPosition,
                                      wxSize(-1, 110), names);
-    for (unsigned i = 0; i < m_computers->GetCount(); i++) m_computers->Check(i, true);
+    // Only the sidebar's computer, and nothing at all when the sidebar is on a
+    // group or "All computers" - guessing there would put us back where we
+    // started.
+    for (unsigned i = 0; i < m_computers->GetCount(); i++)
+        m_computers->Check(i, !preselect.IsEmpty() &&
+                              m_computers->GetString(i) == preselect);
     top->Add(m_computers, 0, wxEXPAND | wxALL, 12);
 
     // ---- project picker --------------------------------------------------
@@ -102,7 +108,13 @@ BtAddProjectDlg::BtAddProjectDlg(wxWindow* parent,
             "that has never fetched it will not have one.\n\n"
             "You can still attach by typing the project's URL below.");
 
-    SetSizer(top);
+    // Fit to the contents rather than guessing a size. A fixed 760x640 was under
+    // the sum of the children's minimums on MSW - its rows and borders are
+    // taller than GTK's - so the sizer squeezed the one proportional item, which
+    // was the project tree. It looked like a broken control rather than a small
+    // window.
+    SetSizerAndFit(top);
+    SetMinSize(GetSize());          // and it cannot be dragged back down to that
 }
 
 void BtAddProjectDlg::BuildTree(const wxString& filter)

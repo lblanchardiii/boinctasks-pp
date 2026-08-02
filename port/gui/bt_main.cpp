@@ -14,6 +14,7 @@
 #include <map>
 #include <deque>
 #include <thread>
+#include <atomic>
 #include <algorithm>
 #include <fstream>
 #include <memory>
@@ -24,6 +25,9 @@
 
 #include "bt_types.h"
 #include "bt_config.h"
+#include "bt_icons.h"
+#include "bt_import.h"
+#include <wx/filedlg.h>
 #include "bt_poller.h"
 #include "bt_views.h"
 #include "bt_history.h"
@@ -54,7 +58,7 @@
 // hand-rolled compile; it had drifted to 0.9.0 while the packages said 0.9.1,
 // which is exactly what putting it in one place prevents.
 #ifndef BT_VERSION_STR
-#define BT_VERSION_STR "0.9.4"
+#define BT_VERSION_STR "0.9.4b"
 #endif
 static const char* kVersion   = BT_VERSION_STR;
 static const char* kUpdateUrl = "https://boinctasks-pp.free-dc.org/download.html";
@@ -166,6 +170,19 @@ public:
         m_treeBook = new wxNotebook(split, wxID_ANY);
         m_tree = new wxTreeCtrl(m_treeBook, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                 wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT | wxTR_SINGLE);
+        {   // image 0 = "not connected". Connected hosts carry no image at all,
+            // as in Classic, so the marker means something when it appears.
+            const int isz = FromDIP(16);
+            wxBitmap bmp(isz >= 24 ? bt_disconnected_32_xpm : bt_disconnected_16_xpm);
+            if (bmp.GetWidth() != isz) {
+                wxImage im = bmp.ConvertToImage();
+                im.Rescale(isz, isz, wxIMAGE_QUALITY_HIGH);
+                bmp = wxBitmap(im);
+            }
+            auto* images = new wxImageList(isz, isz);
+            images->Add(bmp);
+            m_tree->AssignImageList(images);
+        }
         m_treeBook->AddPage(m_tree, "Computers", true);
 
         // Second sidebar: pick a project and the views show only that project.
@@ -322,7 +339,7 @@ public:
     }
 
 private:
-    enum { ID_ADD_COMPUTER = wxID_HIGHEST + 1, ID_REMOVE_COMPUTER,
+    enum { ID_ADD_COMPUTER = wxID_HIGHEST + 1, ID_REMOVE_COMPUTER, ID_IMPORT_CLASSIC,
            ID_HISTORY_RETENTION, ID_SETTINGS, ID_ADD_PROJECT,
            ID_FIND_COMPUTERS, ID_REFRESH_NOW, ID_FIT_TREE,
            ID_REPORT_ALL, ID_ACCOUNT_MGR, ID_BOINC_PREFS,
@@ -357,6 +374,8 @@ private:
         auto* menuFile = new wxMenu;
         m_clientStart = menuFile->Append(ID_CLIENT_START, "Start BOINC Client (localhost)");
         m_clientStop  = menuFile->Append(ID_CLIENT_STOP,  "Stop BOINC Client (localhost)");
+        menuFile->AppendSeparator();
+        menuFile->Append(ID_IMPORT_CLASSIC, "Import computers from BoincTasks...");
         menuFile->AppendSeparator();
         menuFile->Append(ID_COLOURS_READ,  "Read color settings...");
         menuFile->Append(ID_COLOURS_WRITE, "Write color settings...");
@@ -471,6 +490,7 @@ private:
 
         // ---- bindings ----
         Bind(wxEVT_MENU, &MainFrame::OnAddComputer, this, ID_ADD_COMPUTER);
+        Bind(wxEVT_MENU, &MainFrame::OnImportClassic, this, ID_IMPORT_CLASSIC);
         Bind(wxEVT_MENU, &MainFrame::OnRemoveComputer, this, ID_REMOVE_COMPUTER);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { OnFindComputers(); }, ID_FIND_COMPUTERS);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { Rebuild(); }, ID_REFRESH_NOW);
@@ -811,8 +831,20 @@ private:
     }
 
     // ---- computer tree ---------------------------------------------------
+    // Set or clear the "not connected" marker on one computer's tree item.
+    // Deliberately not a tree rebuild: RebuildTree recreates every item and
+    // calls ExpandAll and SelectItem, so driving that from the poll loop would
+    // fight the user's selection and expansion twice a second.
+    void MarkConnected(const wxString& name, bool connected)
+    {
+        auto it = m_treeItems.find(name);
+        if (it == m_treeItems.end() || !it->second.IsOk()) return;
+        m_tree->SetItemImage(it->second, connected ? -1 : 0);
+    }
+
     void RebuildTree()
     {
+        m_treeItems.clear();
         m_tree->DeleteAllItems();
         wxTreeItemId root = m_tree->AddRoot("root");
         m_allItem = m_tree->AppendItem(root, "All computers", -1, -1,
@@ -831,8 +863,14 @@ private:
                     parent = it->second;
                 }
             }
-            m_tree->AppendItem(parent, c.name, -1, -1, new BtTreeData(c.name, c.group));
+            m_treeItems[c.name] =
+                m_tree->AppendItem(parent, c.name, -1, -1,
+                                   new BtTreeData(c.name, c.group));
         }
+        // A rebuild throws the images away with the items, so re-apply what is
+        // already known rather than waiting for the next connection change.
+        for (const auto& kv : m_snapshots)
+            MarkConnected(kv.first, kv.second && kv.second->connected);
         m_tree->ExpandAll();
         m_tree->SelectItem(m_allItem);
         FitTreePane();
@@ -954,14 +992,27 @@ private:
             wxString name = c.name;
             int stagger = (n > 1) ? (int)((long long)idx * interval / n) : 0;
             m_pollers.push_back(std::make_unique<BtPoller>(c,
-                [self, name](std::shared_ptr<BtSnapshot> snap) {
-                    wxTheApp->CallAfter([self, name, snap]() {
+                [self, name, alive = m_alive](std::shared_ptr<BtSnapshot> snap) {
+                    wxTheApp->CallAfter([self, name, snap, alive]() {
+                        if (!alive || !*alive) return;   // frame is going away
                         auto prev = self->m_snapshots.find(name);
                         bool was = (prev != self->m_snapshots.end()) &&
                                    prev->second->connected;
-                        if (self->m_log && was != snap->connected)
-                            self->m_log->Append(name, snap->connected
-                                ? "connected" : "lost connection: " + snap->error);
+                        const bool first = (prev == self->m_snapshots.end());
+                        // Log the first result for a computer as well as any
+                        // later change. Suppressing the first one emptied the
+                        // Log tab: the startup "connected" lines were most of
+                        // what it ever held.
+                        if ((first || was != snap->connected) && self->m_log)
+                            self->m_log->Append(name,
+                                snap->connected ? wxString("connected")
+                                                : "not connected: " + snap->error);
+                        // Mark on the first snapshot as well as on a change: a
+                        // host that is already down when the program starts goes
+                        // false -> false, which is not a transition and would
+                        // otherwise never get its marker.
+                        if (first || was != snap->connected)
+                            self->MarkConnected(name, snap->connected);
                         self->m_snapshots[name] = snap;
                         self->ScheduleRebuild();
                     });
@@ -971,7 +1022,37 @@ private:
         }
     }
 
-    void StopPollers() { m_pollers.clear(); m_pollerByName.clear(); }
+    // Retiring a fleet used to run m_pollers.clear() straight from the GUI
+    // thread, and every ~BtPoller joined its thread. A poller sitting in an RPC
+    // call cannot see the stop flag until its socket times out - thirty seconds,
+    // from the SO_RCVTIMEO this port sets - and the waits ran one after another.
+    // With ninety-six clients, ticking a checkbox froze the window for minutes.
+    //
+    // Now every poller is told to stop at once, so their timeouts overlap, and
+    // the joining happens on a throwaway thread. The GUI returns immediately.
+    void StopPollers()
+    {
+        for (auto& p : m_pollers) if (p) p->Signal();
+        if (!m_pollers.empty()) {
+            std::vector<std::unique_ptr<BtPoller>> dying;
+            dying.swap(m_pollers);
+            std::thread([d = std::move(dying)]() mutable { d.clear(); }).detach();
+        }
+        m_pollers.clear();
+        m_pollerByName.clear();
+    }
+
+    // Callbacks reach the frame through a raw pointer, and a poller retiring in
+    // the background may still deliver one last snapshot. Rather than make
+    // shutdown wait for every socket to time out, the callback tests this first
+    // and drops the snapshot once the frame is going away.
+    void DrainPollers()
+    {
+        if (m_alive) *m_alive = false;
+        StopPollers();
+    }
+    std::shared_ptr<std::atomic<bool>> m_alive =
+        std::make_shared<std::atomic<bool>>(true);
 
     // ---- operations ------------------------------------------------------
     // Commands run on the owning computer's poller thread: that thread owns the
@@ -1194,7 +1275,19 @@ private:
         // tabs forces a rebuild, so a hidden page is never stale when shown.
         const int page = shownPage;
 
-        if (page == PAGE_TASKS) m_tasks->SetRows(std::move(tasks));
+        if (page == PAGE_TASKS) {
+            std::map<wxString, BtCapacity> caps;
+            for (const auto& [name, snap] : m_snapshots) {
+                if (!snap || !snap->connected) continue;
+                BtCapacity c;
+                c.ncpus         = snap->ncpus;
+                c.maxNcpusPct   = snap->maxNcpusPct;
+                c.cpuUsageLimit = snap->cpuUsageLimit;
+                caps[name] = c;
+            }
+            m_tasks->SetCapacities(std::move(caps));
+            m_tasks->SetRows(std::move(tasks));
+        }
         if (page == PAGE_PROJECTS) {
             // Tasks a day / a week: no project reports these, so they come from
             // the completions this app has recorded. Recount every 60s rather
@@ -1462,12 +1555,7 @@ private:
             case ComputersView::COL_GROUP: target->group = value; break;
             case ComputersView::COL_NAME: {
                 if (value.IsEmpty() || value == name) return;
-                for (const auto& c : m_computers)
-                    if (c.name == value) {
-                        wxMessageBox("A computer called \"" + value + "\" already exists.",
-                                     "Computers", wxOK | wxICON_WARNING, this);
-                        return;
-                    }
+                if (RejectDuplicateName(value, name)) return;
                 auto snap = m_snapshots.find(name);
                 if (snap != m_snapshots.end()) {
                     m_snapshots[value] = snap->second;
@@ -1976,12 +2064,86 @@ private:
         SetStatusText(wxString::Format("account manager: %d computer(s)", sent), 1);
     }
 
+    // Import eFMer's computers.xml. Merges - never replaces - so running it
+    // twice, or on a partial list, cannot cost somebody their configuration.
+    void OnImportClassic(wxCommandEvent&)
+    {
+        wxFileDialog dlg(this, "Open BoincTasks computers.xml", "", "computers.xml",
+                         "computers.xml|computers.xml|XML files (*.xml)|*.xml|All files|*",
+                         wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+        if (dlg.ShowModal() != wxID_OK) return;
+
+        BtImportResult r = BtParseClassicComputers(dlg.GetPath());
+        if (!r.error.IsEmpty()) {
+            wxMessageBox(r.error, "Import", wxOK | wxICON_ERROR, this);
+            return;
+        }
+
+        int encrypted = 0;
+        for (const auto& e : r.entries) if (e.encrypted) encrypted++;
+
+        wxString ask = wxString::Format(
+            "%zu computer(s) found in that file.\n\n"
+            "They will be added to your list; nothing already configured is "
+            "changed or removed, and a name you already have is left alone.",
+            r.entries.size());
+        if (encrypted)
+            ask += wxString::Format(
+                "\n\n%d of them store the password encrypted. Windows encrypts "
+                "those with a key held on the machine that wrote the file, so "
+                "they cannot be read here - those computers are added without a "
+                "password for you to fill in.", encrypted);
+        ask += "\n\nGo ahead?";
+
+        if (wxMessageBox(ask, "Import computers", wxYES_NO | wxICON_QUESTION, this) != wxYES)
+            return;
+
+        int added = 0, skipped = 0, needPassword = 0;
+        BtMergeComputers(r.entries, m_computers, added, skipped, needPassword);
+        BtSaveComputers(m_computers);
+        RebuildTree();
+        StartPollers();          // same idiom the network scan uses
+        Rebuild();
+
+        wxString msg = wxString::Format("Added %d computer(s).", added);
+        if (skipped)      msg += wxString::Format("\n%d already existed and were left alone.", skipped);
+        if (needPassword) msg += wxString::Format("\n%d need a password entering before they will connect.", needPassword);
+        if (m_log) m_log->Append("", wxString::Format(
+            "imported %d computer(s) from BoincTasks (%d skipped, %d need a password)",
+            added, skipped, needPassword));
+        wxMessageBox(msg, "Import complete", wxOK | wxICON_INFORMATION, this);
+    }
+
+    // The whole application is keyed by computer name: m_snapshots, m_pollerByName
+    // and the sidebar all use it. Two computers sharing a name means two pollers
+    // writing the same map entry, which shows up as a host flickering between
+    // connected and not. Compared without case, because "DESKTOP-ARJ" and
+    // "Desktop-arj" are one machine to the person reading the list.
+    bool NameTaken(const wxString& name, const wxString& except = wxEmptyString)
+    {
+        for (const auto& c : m_computers) {
+            if (!except.IsEmpty() && c.name.IsSameAs(except, false)) continue;
+            if (c.name.IsSameAs(name, false)) return true;
+        }
+        return false;
+    }
+    bool RejectDuplicateName(const wxString& name, const wxString& except = wxEmptyString)
+    {
+        if (name.IsEmpty() || !NameTaken(name, except)) return false;
+        wxMessageBox("A computer called \"" + name + "\" is already on the list.\n\n"
+                     "Names have to be unique - the application tracks each host by "
+                     "its name, and two the same make both of them unreliable.",
+                     "Computers", wxOK | wxICON_WARNING, this);
+        return true;
+    }
+
     void OnAddComputer(wxCommandEvent&)
     {
         AddComputerDlg dlg(this);
         if (dlg.ShowModal() != wxID_OK) return;
         BtComputer c = dlg.Result();
         if (c.host.IsEmpty()) return;
+        if (RejectDuplicateName(c.name)) return;
         StopPollers();
         m_computers.push_back(c);
         BtSaveComputers(m_computers);
@@ -2014,7 +2176,7 @@ private:
         for (const auto& c : m_computers) names.push_back(c.name);
         if (names.empty()) return;
 
-        BtAddProjectDlg dlg(this, names, m_knownProjects);
+        BtAddProjectDlg dlg(this, names, m_knownProjects, TreeComputer());
         if (dlg.ShowModal() != wxID_OK) return;
 
         auto requests = dlg.Result();
@@ -2156,6 +2318,9 @@ private:
             if (dlg.ShowModal() != wxID_OK) return;
             BtComputer updated = dlg.Result();
             if (updated.host.IsEmpty()) return;
+            // Renaming onto another computer's name is what produced two hosts
+            // called the same thing, each blinking in and out of connection.
+            if (RejectDuplicateName(updated.name, it->name)) return;
 
             wxString oldName = it->name;
             StopPollers();
@@ -2281,6 +2446,7 @@ private:
 
     void OnClose(wxCloseEvent& ev)
     {
+        DrainPollers();   // no snapshot may reach a frame that is closing
         // Remember the window for next launch. Save the restored size, not the
         // maximized one, so un-maximizing lands back where the user had it.
         gSettings.winMaximized = IsMaximized();
@@ -2306,6 +2472,7 @@ private:
 
     wxTreeCtrl*    m_tree;
     wxTreeItemId   m_allItem;
+    std::map<wxString, wxTreeItemId> m_treeItems;   // name -> sidebar item
     wxSplitterWindow* m_split = nullptr;
     wxNotebook*    m_treeBook = nullptr;   // holds the tree under a "Computers" tab
     wxSplitterWindow* m_projSplit = nullptr;

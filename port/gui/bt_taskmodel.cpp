@@ -1,4 +1,5 @@
 #include "bt_taskmodel.h"
+#include <cmath>
 #include <wx/datetime.h>
 #include <algorithm>
 #include "bt_settings.h"
@@ -33,6 +34,36 @@ static wxString fmtDeadline(double t)
 }
 
 // ---------------------------------------------------------------------------
+// "1.00 CPU", "1.00 CPU + 1.00 NV", "32C", "32C + 4NV" - one place so a task
+// row and its collapsed group cannot drift into different wording. Classic
+// writes the device as NV/ATI, which is what people arriving from it know.
+// %g switches to scientific notation past four digits, so a group of 1088
+// tasks rendered as "1.09e+03C". Print a whole number as a whole number and
+// trim trailing zeros off anything else.
+static wxString shortNum(double v)
+{
+    if (fabs(v - floor(v + 0.5)) < 0.005) return wxString::Format("%.0f", v);
+    wxString s = wxString::Format("%.2f", v);
+    while (s.EndsWith("0")) s.RemoveLast();
+    if (s.EndsWith(".")) s.RemoveLast();
+    return s;
+}
+
+static wxString fmtUse(double cpus, double gpus, const wxString& kind, bool condensed)
+{
+    wxString out;
+    if (cpus > 0)
+        out = condensed ? shortNum(cpus) + "C"
+                        : wxString::Format("%.2f CPU", cpus);
+    if (gpus > 0) {
+        wxString dev = kind.IsEmpty() ? wxString("GPU") : kind;
+        wxString g   = condensed ? shortNum(gpus) + dev
+                                 : shortNum(gpus) + " " + dev;
+        out = out.IsEmpty() ? g : out + " + " + g;
+    }
+    return out;
+}
+
 void BtTaskModel::Update(std::vector<BtTaskRow>&& rows)
 {
     // Bucket incoming rows by group key. Which fields make up the key comes
@@ -114,18 +145,41 @@ void BtTaskModel::Update(std::vector<BtTaskRow>&& rows)
         for (const auto* t : list) if (t->warning) { g->warning = true; break; }
 
         // aggregates: averages over the group, earliest deadline
-        double cpu = 0, el = 0, ct = 0, tl = 0, pr = 0, use = 0, dl = 0;
+        double cpu = 0, el = 0, ct = 0, pr = 0, use = 0, dl = 0;
+        double sumC = 0, sumG = 0;
+        wxString gk;
         g->tasks.clear();
         g->tasks.reserve(list.size());
         for (auto* r : list) {
             cpu += r->cpuPct; el += r->elapsed; ct += r->cpuTime;
-            tl  += r->timeLeft; pr += r->progress; use += r->useCpus;
+            pr += r->progress; use += r->useCpus;
+            // Only what is actually executing occupies a core. Summing every
+            // task in the group gave "1088C" for a queue of 1088 waiting tasks
+            // on a 32-thread host, which describes nothing real.
+            if (r->running) { sumC += r->useCpus; sumG += r->useGpus; }
+            if (gk.IsEmpty() && !r->gpuKind.IsEmpty()) gk = r->gpuKind;
             if (r->deadline > 0 && (dl == 0 || r->deadline < dl)) dl = r->deadline;
             g->tasks.push_back(*r);
         }
         double n = (double)list.size();
         g->cpuPct = cpu / n; g->elapsed = el / n; g->cpuTime = ct / n;
-        g->timeLeft = tl / n; g->progress = pr / n; g->useCpus = use / n;
+        g->progress = pr / n; g->useCpus = use / n;
+
+        // Time Left on a collapsed group is how long the group takes to finish,
+        // not the average of its rows and not their sum. A group never spans
+        // computers (the key starts with the computer name), so one host's
+        // capacity applies to all of it.
+        {
+            auto c = m_caps.find(list[0]->computer);
+            double span = c != m_caps.end()
+                        ? BtWallClockRemaining(g->tasks, c->second) : -1;
+            if (span <= 0) {                 // capacity not known yet
+                span = 0;
+                for (const auto* r : list) span = std::max(span, r->timeLeft);
+            }
+            g->timeLeft = span;
+        }
+        g->sumCpus = sumC; g->sumGpus = sumG; g->gpuKind = gk;
         g->deadline = dl;
 
         // keep tasks in a stable order so rows don't dance between polls
@@ -191,10 +245,12 @@ void BtTaskModel::GetValueByRow(wxVariant& v, unsigned row, unsigned col) const
             case COL_TIMELEFT: v = fmtElapsed(r->timeLeft); return;
             case COL_PROGRESS: v = (long)(r->progress + 0.5); return;
             case COL_DEADLINE: v = fmtDeadline(r->deadline); return;
-            case COL_USE:      v = r->useCpus <= 0 ? wxString("")
-                             : gSettings.condenseUse
-                                 ? wxString::Format("%.3gC", r->useCpus)
-                                 : wxString::Format("%.2f CPU", r->useCpus); return;
+            // A task waiting to start is not using a core, so the cell is
+            // blank rather than advertising what it would take if it ran.
+            case COL_USE:      v = r->running
+                                 ? fmtUse(r->useCpus, r->useGpus, r->gpuKind,
+                                          gSettings.condenseUse)
+                                 : wxString(); return;
             case COL_STATUS:   v = r->status; return;
             case COL_COMPUTER: v = r->computer; return;
             case COL_ACCOUNT:  v = r->account; return;
@@ -227,7 +283,10 @@ void BtTaskModel::GetValueByRow(wxVariant& v, unsigned row, unsigned col) const
         case COL_TIMELEFT: v = fmtElapsed(g->timeLeft); return;
         case COL_PROGRESS: v = (long)(g->progress + 0.5); return;
         case COL_DEADLINE: v = fmtDeadline(g->deadline); return;
-        case COL_USE:      v = wxString(); return;
+        // the group's total, not an average: 32 single-threaded tasks occupy
+        // 32 cores, and that is the useful number on a collapsed row
+        case COL_USE:      v = fmtUse(g->sumCpus, g->sumGpus, g->gpuKind,
+                                      gSettings.condenseUse); return;
         case COL_STATUS:   v = g->status; return;
         case COL_COMPUTER: v = g->computer; return;
         // aggregate rows leave the per-task detail columns blank

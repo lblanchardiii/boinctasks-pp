@@ -12,6 +12,7 @@
 // =============================================================================
 #pragma once
 #include "bt_types.h"
+#include "bt_estimate.h"
 #include <wx/dataview.h>
 #include <map>
 #include <memory>
@@ -31,6 +32,11 @@ public:
     // aggregates shown on a collapsed group row
     double cpuPct = 0, elapsed = 0, cpuTime = 0, timeLeft = 0,
            progress = 0, deadline = 0, useCpus = 0;
+    // Totals, not averages. useCpus above stays an average because the sort
+    // comparator and anything else reading it expect a per-task figure; the
+    // Use cell wants "what this group occupies", which is the sum.
+    double sumCpus = 0, sumGpus = 0;
+    wxString gpuKind;               // blank when the group holds no GPU work
 
     std::vector<BtTaskRow> tasks;
 };
@@ -45,6 +51,9 @@ public:
 
     // Merge a fresh row set; group identity (and expansion) survives polls.
     void Update(std::vector<BtTaskRow>&& rows);
+    // Per-computer core counts and prefs, for the collapsed Time Left estimate.
+    // Set before Update(); without it a group falls back to its longest task.
+    void SetCapacities(std::map<wxString, BtCapacity> caps) { m_caps = std::move(caps); }
 
     // Toggle the group shown on this row; false if it isn't a collapsible group.
     bool ToggleRow(unsigned row);
@@ -72,6 +81,7 @@ public:
                       wxDataViewItemAttr& attr) const override;
 
 private:
+    std::map<wxString, BtCapacity> m_caps;
     struct FlatRow
     {
         BtGroupNode* group;

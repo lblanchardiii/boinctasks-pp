@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # past z, bump the number instead.
 #
 if(NOT DEFINED BT_VERSION)
-    set(BT_VERSION "0.9.4")
+    set(BT_VERSION "0.9.5")
 endif()
 
 # Windows version resources and NSIS accept four integers and nothing else, so
@@ -48,7 +48,8 @@ set(BT_VERSION_COMMA "${_bt_major},${_bt_minor},${_bt_patch},${_bt_build}")
 set(BT_VERSION_NUM   "${_bt_major}.${_bt_minor}.${_bt_patch}.${_bt_build}")
 message(STATUS "BoincTasks++ version ${BT_VERSION} (numeric ${BT_VERSION_NUM})")
 
-find_package(wxWidgets 3.2 REQUIRED COMPONENTS core base)
+# xml: reading Classic's computers.xml for the import
+find_package(wxWidgets 3.2 REQUIRED COMPONENTS xml core base)
 include(${wxWidgets_USE_FILE})
 
 set(BT_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -139,6 +140,8 @@ add_executable(boinctasks
     gui/bt_settings.cpp
     gui/bt_addproject.cpp
     gui/bt_freedc.cpp
+    gui/bt_import.cpp
+    gui/bt_estimate.cpp
     gui/bt_taskinfo.cpp
 )
 target_compile_definitions(boinctasks PRIVATE BT_VERSION_STR="${BT_VERSION}")

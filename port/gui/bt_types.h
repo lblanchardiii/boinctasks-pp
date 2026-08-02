@@ -49,6 +49,8 @@ struct BtTaskRow
     bool     running  = false;
     bool     error    = false;
     bool     isGpu    = false;      // app version uses a GPU
+    double   useGpus  = 0;          // how many, from ncudas / natis
+    wxString gpuKind;               // "NV", "ATI", "INTC" - blank when unknown
     bool     nonCpuIntensive = false;   // project runs non-CPU-intensive work
     bool     warning  = false;      // a Warnings rule matched; highlight the row
     // Windows shows these too; all come straight off the client's RESULT
@@ -130,6 +132,10 @@ struct BtSnapshot
     wxString                   hostname;      // domain_name reported by client
     wxString                   clientVersion; // e.g. "8.2.9"
     wxString                   platform;      // e.g. "x86_64-pc-linux-gnu"
+    // What this host can actually run at once, for the Time Left estimate.
+    int    ncpus        = 0;      // HOST_INFO::p_ncpus
+    double maxNcpusPct  = 100;    // global pref: share of cores BOINC may use
+    double cpuUsageLimit = 100;   // global pref: throttle, slows everything
     std::vector<BtTaskRow>     tasks;
     std::vector<BtProjectRow>  projects;
     std::vector<BtTransferRow> transfers;
