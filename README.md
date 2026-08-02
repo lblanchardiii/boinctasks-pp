@@ -3,6 +3,10 @@
 A native port of [BoincTasks](https://efmer.com/boinctasks/) by eFMer — manage
 BOINC across every computer you run, from one window. Linux and Windows.
 
+**[boinctasks-pp.free-dc.org](https://boinctasks-pp.free-dc.org/)** — downloads,
+install guides and screenshots · **[Discord](https://discord.gg/ZhGtfVkTvW)** — questions, help and
+release announcements
+
 [**Download 0.9.4**](https://github.com/lblanchardiii/boinctasks-pp/releases/latest)
 
 **Linux** — [AppImage](https://github.com/lblanchardiii/boinctasks-pp/releases/download/v0.9.4/BoincTasksPP-0.9.4-x86_64.AppImage)
@@ -34,7 +38,9 @@ are Windows-specific, and in testing. Developed against a farm of 41 clients.
 
 ## Install
 
-Everything is on the [releases page](https://github.com/lblanchardiii/boinctasks-pp/releases/latest).
+Everything is on the [releases page](https://github.com/lblanchardiii/boinctasks-pp/releases/latest),
+and there are step-by-step guides with screenshots at
+[boinctasks-pp.free-dc.org/install.html](https://boinctasks-pp.free-dc.org/install.html).
 
 ### Linux
 
@@ -203,6 +209,13 @@ for the full breakdown and [CHANGELOG.md](CHANGELOG.md) for the naming history.
 `git diff master...main` shows exactly what the port changed.
 
 ## Reporting problems
+
+Two places, whichever suits you:
+
+- **[GitHub issues](https://github.com/lblanchardiii/boinctasks-pp/issues)** — bugs
+  and feature requests. Best for anything that needs to be tracked to a fix.
+- **[Discord](https://discord.gg/ZhGtfVkTvW)** — questions, help getting set up, and release
+  announcements. Better when you are not sure yet whether it is a bug.
 
 Include your operating system and version — on Linux, the distribution and
 whether you used the AppImage or the `.deb`; on Windows, 10 or 11 — how many
