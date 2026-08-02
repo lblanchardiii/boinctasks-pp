@@ -4,11 +4,6 @@
 
 #pragma once
 
-#ifndef _WIN32
-// ===== Linux port: route everything through the compatibility layer =========
-#include "bt_compat.h"
-#else
-// ===== Original Windows/MFC path =============================================
 #ifndef _SECURE_ATL
 #define _SECURE_ATL 1
 #endif
@@ -79,5 +74,3 @@
 #endif
 
 
-
-#endif // _WIN32

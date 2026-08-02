@@ -83,16 +83,12 @@ else()
     )
 endif()
 
-# ---- core (non-UI) library --------------------------------------------------
-add_library(btcore STATIC
-    ${BT_ROOT}/BoincTasks/RpcClient.cpp
-    ${BT_ROOT}/BoincTasks/Base64.cpp
-    compat/bt_port_shim.cpp
-)
 set_source_files_properties(${BT_ROOT}/BoincLibrary/Boinc/md5.c PROPERTIES LANGUAGE C)
-target_link_libraries(btcore ${wxWidgets_LIBRARIES})
 
 # ---- BOINC's own cross-platform gui-rpc library ------------------------------
+# The only path to a client. Phase 1 went through eFMer's CRpcClient wrapper,
+# kept compiling on Linux by a shim over the Win32 socket calls; nothing uses it
+# now, so neither it nor the shim is built.
 add_library(boinclib STATIC
     ${BT_ROOT}/BoincLibrary/Boinc/gui_rpc_client.cpp
     ${BT_ROOT}/BoincLibrary/Boinc/gui_rpc_client_ops.cpp
@@ -122,11 +118,10 @@ endif()
 target_include_directories(boinclib PUBLIC ${BT_ROOT}/BoincLibrary/Boinc)
 
 # ---- headless smoke test ----------------------------------------------------
-add_executable(bt_rpc_test tests/bt_rpc_test.cpp)
-target_link_libraries(bt_rpc_test btcore boinclib ${wxWidgets_LIBRARIES})
-
+# Connects to a live client and reads its status: the quickest way to tell a
+# broken build from a broken BOINC configuration.
 add_executable(bt_boincrpc_test tests/bt_boincrpc_test.cpp)
-target_link_libraries(bt_boincrpc_test boinclib btcore ${wxWidgets_LIBRARIES})
+target_link_libraries(bt_boincrpc_test boinclib ${wxWidgets_LIBRARIES})
 
 # ---- Phase 2: wxWidgets GUI skeleton ----------------------------------------
 add_executable(boinctasks
