@@ -323,6 +323,38 @@ money; the decision is open.
 
 ## Queued
 
+**Link BOINC's library directly instead of the vendored copy.**
+*Headline item for the next version.* Suggested by Wedge009
+([issue #1](https://github.com/lblanchardiii/boinctasks-pp/issues/1)), who
+independently ported BoincTasks and used BOINC as a submodule.
+
+`BoincLibrary/` is a snapshot of BOINC's `lib/` carried inside eFMer's tree, not
+a submodule. Its `version.h` reads 6.13.0 against upstream's 8.3.0, and
+`hostinfo.h` is half the size of upstream's. Missing: `COPROC_INTEL`,
+`COPROC_APPLE`/`apple_gpu`, `docker_version`, `p_vm_extensions_disabled`,
+`num_opencl_cpu_platforms`. How stale it is shows in `str_util.cpp`, where the
+`HAVE_STRDUP` branch read `needle=strdup(s1)` — wrong variable and no semicolon,
+so it cannot compile and never has on Windows. We patched it; upstream had
+already deleted the whole approach and rewritten the function with `strlcpy`.
+
+Not a drop-in. Three things have to be handled:
+
+- **`str_util.cpp`** (+1/−1) — our patch disappears; upstream rewrote it.
+- **`gui_rpc_client.cpp`** (5 hunks) — must be carried across or upstreamed. A
+  30-second `SO_RCVTIMEO` and the `errno` handling around it, so an unreachable
+  host cannot hang a poller thread indefinitely.
+- **`gui_rpc_client.h`** (16 lines) — same.
+
+The actual work is that **`APP_VERSION` changed shape**: upstream replaced
+`ncudas` with a generic `gpu_usage`. `bt_poller.cpp:213-216` reads
+`ncudas`/`natis` to set `isGpu`, `useGpus` and `gpuKind`, which feeds the Use
+column and the GPU half of the Time Left estimate. That has to be rewritten.
+
+The payoff beyond currency: it settles the `ATI` string, which is still an
+unverified guess, and makes Intel and Apple GPUs identifiable at all — neither
+is representable in the vendored structs.
+
+
 **Update checker.**
 `latest.json` is already published in the right shape (version, released, and
 url/sha256/size per platform). The client side is not written.
