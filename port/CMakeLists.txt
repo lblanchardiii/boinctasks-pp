@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # past z, bump the number instead.
 #
 if(NOT DEFINED BT_VERSION)
-    set(BT_VERSION "0.9.5")
+    set(BT_VERSION "0.9.6")
 endif()
 
 # Windows version resources and NSIS accept four integers and nothing else, so
@@ -173,10 +173,18 @@ if(WIN32)
     # DPI), the application icon and the version block Explorer shows.
     target_sources(boinctasks PRIVATE packaging/win/boinctasks.rc)
 
+    # The manifest's assemblyIdentity carries the version too, so it is
+    # generated from the .in with BT_VERSION_NUM rather than hand-edited (it
+    # sat at 0.9.0.0 for four releases). windres finds it through the target's
+    # include directories, which CMake passes to the RC compiler as well.
+    configure_file(packaging/win/boinctasks.manifest.in
+                   "${CMAKE_CURRENT_BINARY_DIR}/boinctasks.manifest" @ONLY)
+    target_include_directories(boinctasks PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
     # BT_VERSION_COMMA already carries all four fields, letter included as the
     # build number. The .rc keeps matching defaults for a bare windres run.
     set_source_files_properties(packaging/win/boinctasks.rc PROPERTIES
-        OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/win/boinctasks.manifest"
+        OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/boinctasks.manifest"
         COMPILE_DEFINITIONS "BT_VERSION_STR=\\\"${BT_VERSION}\\\";BT_VERSION_COMMA=${BT_VERSION_COMMA}")
 
     # SQLite is cross-compiled from the amalgamation; there is no MinGW package

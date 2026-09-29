@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.6 — 2026-09-29
+
+**Built against BOINC itself.** The RPC library now comes from the BOINC
+project's own source, pinned to the 8.2.15 release as a git submodule, instead
+of the copy carried inside eFMer's tree, whose version file still read 6.13.0.
+Every local patch that copy needed - IPv6 addresses, the 30-second socket
+timeout, two build fixes for current glibc - turned out to be a fix BOINC had
+made years ago, so nothing is patched any more and `BoincTasks/` is byte for
+byte upstream again. Everything this port adds lives in `port/` and
+`third_party/`.
+
+**GPU work is named by the client, not guessed.** BOINC 8 tells us which device
+an app version runs on, so the Use column now says NV, ATI, INTC or APPL from
+the client's own answer, and Intel and Apple GPUs are shown as GPU work at all
+where before they read as CPU. Clients still on 7.x do not send that, and the
+newer library no longer reads the old `ncudas`/`natis` fields, so their GPU
+tasks are labelled from the plan class instead - verified against a 7.14.2
+host whose CUDA and OpenCL tasks otherwise came back as CPU.
+
 ## 0.9.5 — 2026-08-02
 
 **Import computers from BoincTasks (Classic).** `File -> Import computers from

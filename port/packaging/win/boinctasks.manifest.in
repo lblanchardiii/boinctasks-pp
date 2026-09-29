@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="BoincTasksPP" version="0.9.0.0"
+  <assemblyIdentity type="win32" name="BoincTasksPP" version="@BT_VERSION_NUM@"
                     processorArchitecture="*"/>
   <description>BoincTasks++ - manage BOINC across many computers</description>
 
