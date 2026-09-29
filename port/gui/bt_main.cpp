@@ -43,6 +43,7 @@
 #include <wx/fileconf.h>
 #include <wx/notifmsg.h>
 #include "gui_rpc_client.h"
+#include "bt_rpcowned.h"
 #include "str_replace.h"   // strlcpy on platforms lacking it (MinGW)
 #include "str_util.h"
 #include "bt_ccconfig.h"   // safe_strcpy: RESULT/PROJECT string fields are char[] upstream
@@ -646,7 +647,7 @@ private:
                 return rpc.get_all_projects_list(out) == 0 && !out.projects.empty();
             };
 
-            ALL_PROJECTS_LIST list;
+            BtOwned<ALL_PROJECTS_LIST> list;
             bool got = false;
 
             {   // local client, password from its own gui_rpc_auth.cfg

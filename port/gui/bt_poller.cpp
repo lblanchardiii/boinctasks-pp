@@ -2,6 +2,7 @@
 #include "bt_settings.h"
 #include "bt_config.h"
 #include "bt_estimate.h"
+#include "bt_rpcowned.h"
 #include "gui_rpc_client.h"
 #include "common_defs.h"
 #include "coproc.h"   // PROC_TYPE_* for the GPU kind
@@ -152,7 +153,9 @@ void BtPoller::Run()
     for (int i = 0; i < m_staggerMs / 50 && !m_stop; i++) wxMilliSleep(50);
 
     RPC_CLIENT rpc;
-    CC_STATE   state;
+    // Every reply container below is BtOwned so its rows are freed when it
+    // goes out of scope - see bt_rpcowned.h for why a plain local leaks.
+    BtOwned<CC_STATE> state;
     bool       connected = false;
     int        stateAge  = 999;
     int        lastSeqno = 0;
@@ -209,9 +212,14 @@ void BtPoller::Run()
         stateAge++;
 
         // ---- tasks -------------------------------------------------------
-        RESULTS results;
+        BtOwned<RESULTS> results;
         if (rpc.get_results(results) != 0) { connected = false; continue; }
         snap->tasks.reserve(results.results.size());
+        // Previous (elapsed, cpu) per task lives only as long as the task is
+        // in the client's list: entries carry over into cpuNext when seen
+        // again and are dropped otherwise, so the map cannot grow with every
+        // task the host has ever run.
+        decltype(m_cpuPrev) cpuNext;
         for (auto* r : results.results) {
             BtTaskRow row;
             row.computer = m_computer.name;
@@ -297,7 +305,7 @@ void BtPoller::Run()
                         row.cpuPct = 100.0 * r->current_cpu_time / r->elapsed_time;
                     }
                 }
-                m_cpuPrev[r->name] = { r->elapsed_time, r->current_cpu_time };
+                cpuNext[r->name] = { r->elapsed_time, r->current_cpu_time };
             }
             if (!row.isGpu) {
                 wxString pc = wxString(r->plan_class).Lower();
@@ -336,9 +344,10 @@ void BtPoller::Run()
                             r->state == RESULT_UPLOAD_FAILED);
             snap->tasks.push_back(std::move(row));
         }
+        m_cpuPrev.swap(cpuNext);
 
         // ---- projects ----------------------------------------------------
-        PROJECTS projects;
+        BtOwned<PROJECTS> projects;
         if (rpc.get_project_status(projects) == 0) {
             for (auto* p : projects.projects) {
                 BtProjectRow row;
@@ -390,7 +399,7 @@ void BtPoller::Run()
         }
 
         // ---- transfers ---------------------------------------------------
-        FILE_TRANSFERS transfers;
+        BtOwned<FILE_TRANSFERS> transfers;
         if (rpc.get_file_transfers(transfers) == 0) {
             for (auto* t : transfers.file_transfers) {
                 BtTransferRow row;
@@ -437,7 +446,7 @@ void BtPoller::Run()
         }
 
         // ---- messages (incremental) -------------------------------------
-        MESSAGES messages;
+        BtOwned<MESSAGES> messages;
         if (rpc.get_messages(lastSeqno, messages) == 0) {
             for (auto* m : messages.messages) {
                 if (m->seqno <= lastSeqno) continue;
@@ -457,7 +466,7 @@ void BtPoller::Run()
 
         // ---- statistics (daily credit history; changes slowly) -----------
         if (statsAge >= (60000 / (m_intervalMs > 0 ? m_intervalMs : 2000)) + 1) {
-            PROJECTS stats;
+            BtOwned<PROJECTS> stats;
             if (rpc.get_statistics(stats) == 0) {
                 statsAge = 0;
                 cachedStats.clear();
@@ -478,7 +487,7 @@ void BtPoller::Run()
         snap->stats = cachedStats;
 
         // ---- notices -----------------------------------------------------
-        NOTICES notices;
+        BtOwned<NOTICES> notices;
         if (rpc.get_notices(0, notices) == 0) {
             for (auto* n : notices.notices) {
                 BtNoticeRow row;

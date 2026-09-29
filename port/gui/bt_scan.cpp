@@ -15,6 +15,7 @@
 #include <wx/button.h>
 #include <wx/stattext.h>
 #include "gui_rpc_client.h"
+#include "bt_rpcowned.h"
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -217,7 +218,7 @@ std::vector<BtScanResult> BtScanRange(const wxString& baseAddr,
                 }
                 if (authed) {
                     r.authorized = true;
-                    CC_STATE state;
+                    BtOwned<CC_STATE> state;
                     if (rpc.get_state(state) == 0)
                         r.hostname = wxString::FromUTF8(state.host_info.domain_name);
                     VERSION_INFO vi;
