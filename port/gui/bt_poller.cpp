@@ -12,6 +12,28 @@
 #include <set>
 #include <algorithm>
 
+// Which GPU an app version runs on, for clients too old to say directly.
+//
+// BOINC 8's reply carries <gpu_type>/<gpu_usage>; older clients send
+// <ncudas>/<natis>, which the current library no longer parses. A 7.x client
+// therefore reports gpu_type = CPU for work that is plainly running on a GPU -
+// verified against a live 7.14.2 host whose opencl_nvidia and cuda1121 app
+// versions all came back as CPU. The plan class still names the device, so it
+// is the fallback rather than showing GPU work as CPU.
+static wxString GpuKindFromPlanClass(const wxString& planClass)
+{
+    const wxString p = planClass.Lower();
+    if (p.IsEmpty()) return wxEmptyString;
+    // Intel and Apple first: "opencl_intel_gpu" also contains "opencl", and
+    // matching the vendor before the framework keeps them apart.
+    if (p.Contains("intel"))  return "INTC";
+    if (p.Contains("apple"))  return "APPL";
+    if (p.Contains("nvidia") || p.Contains("cuda")) return "NV";
+    if (p.Contains("ati") || p.Contains("amd"))     return "ATI";
+    if (p.Contains("opencl")) return "GPU";   // vendor not stated
+    return wxEmptyString;
+}
+
 static wxString taskStatus(const RESULT& r)
 {
     if (r.suspended_via_gui)         return "Suspended";
@@ -216,15 +238,25 @@ void BtPoller::Run()
                     // longer has to be inferred from ncudas/natis - which could
                     // only ever describe NVIDIA and AMD, and left Intel and Apple
                     // GPUs looking like CPU work.
-                    row.isGpu = (av->gpu_type != PROC_TYPE_CPU) && (av->gpu_usage > 0);
-                    if (row.isGpu) {
-                        row.useGpus = av->gpu_usage;
+                    if (av->gpu_type != PROC_TYPE_CPU) {
+                        // The client named the device itself.
+                        row.isGpu   = true;
+                        row.useGpus = av->gpu_usage > 0 ? av->gpu_usage : 1.0;
                         switch (av->gpu_type) {
                             case PROC_TYPE_NVIDIA_GPU: row.gpuKind = "NV";   break;
                             case PROC_TYPE_AMD_GPU:    row.gpuKind = "ATI";  break;
                             case PROC_TYPE_INTEL_GPU:  row.gpuKind = "INTC"; break;
                             case PROC_TYPE_APPLE_GPU:  row.gpuKind = "APPL"; break;
                             default:                   row.gpuKind = "GPU";  break;
+                        }
+                    } else {
+                        // Too old to say. The count is not recoverable, and one
+                        // GPU per task is what almost every project asks for.
+                        wxString kind = GpuKindFromPlanClass(av->plan_class);
+                        if (!kind.IsEmpty()) {
+                            row.isGpu   = true;
+                            row.gpuKind = kind;
+                            row.useGpus = 1.0;
                         }
                     }
                 }
